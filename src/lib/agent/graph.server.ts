@@ -1,16 +1,17 @@
 // LangGraph StateGraph for the receipts agent.
 //
-// Workers note: Cloudflare Workers are stateless. We DON'T use a Postgres
-// checkpointer (no pg sockets). Instead we persist agent state in our own
-// `agent_runs.input_ref` / decisions, then rebuild and re-invoke the graph
-// on resume — playing back saved decisions through interrupt boundaries.
-//
-// Each invocation: build graph -> .invoke({...state, decisions}) -> graph
-// runs forward until it either ends or hits an interrupt() it has no
-// recorded decision for. The server fn writes the new pending approval and
-// returns; the next resumeRun call adds the decision and re-invokes.
+// Workers note: Cloudflare Workers are stateless and can't open raw Postgres
+// sockets, so we don't use a LangGraph checkpointer. Instead we persist
+// per-run state to our own `agent_runs.state` JSONB column and the
+// `approvals` table. Approval nodes consult an in-state `decisions` map:
+// - decision present  -> use it, proceed
+// - decision absent   -> write an `approvals` row, set `pendingApproval`,
+//                        and the graph routes to END for this invocation
+// On resumeRun the server fn writes the decision and re-invokes the graph
+// with the full prior state; nodes already completed are short-circuited
+// because their outputs are already in state.
 
-import { StateGraph, START, END, Annotation, interrupt } from "@langchain/langgraph";
+import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -23,6 +24,7 @@ import {
 import type {
   ApprovalProposal,
   AssignmentProposal,
+  Assignee,
   ExtractedItem,
 } from "./types";
 
@@ -35,6 +37,7 @@ export interface AgentDeps {
     kind: "start" | "end" | "tool" | "error" | "interrupt" | "retry",
     payload: Record<string, unknown>
   ) => Promise<void>;
+  writeApproval: (key: string, node: string, actionKind: string, proposal: ApprovalProposal) => Promise<void>;
 }
 
 export interface InitialInput {
@@ -44,8 +47,22 @@ export interface InitialInput {
   sourceRef: Record<string, unknown>;
 }
 
-// Recorded HITL decisions; key is the interrupt id (= node name + step)
-export type DecisionLog = Record<string, unknown>;
+export type EditPatchSave = Partial<ExtractedItem> & { assignee?: Assignee };
+export type EditPatchCal = { summary?: string; description?: string; startISO?: string; endISO?: string };
+export type DecisionSave = { action: "approve" | "edit" | "reject"; patch?: EditPatchSave };
+export type DecisionCal = { action: "approve" | "edit" | "reject"; patch?: EditPatchCal };
+export type DecisionLog = { approveSave?: DecisionSave; approveCalendar?: DecisionCal };
+
+export interface AgentState {
+  input: InitialInput;
+  extracted: ExtractedItem | null;
+  assignment: AssignmentProposal | null;
+  itemId: string | null;
+  calendarEventId: string | null;
+  decisions: DecisionLog;
+  pendingApproval: string | null;
+  errors: { node: string; message: string }[];
+}
 
 const State = Annotation.Root({
   input: Annotation<InitialInput>({ reducer: (_, b) => b }),
@@ -53,13 +70,11 @@ const State = Annotation.Root({
   assignment: Annotation<AssignmentProposal | null>({ reducer: (_, b) => b, default: () => null }),
   itemId: Annotation<string | null>({ reducer: (_, b) => b, default: () => null }),
   calendarEventId: Annotation<string | null>({ reducer: (_, b) => b, default: () => null }),
+  decisions: Annotation<DecisionLog>({ reducer: (a, b) => ({ ...a, ...b }), default: () => ({}) }),
+  pendingApproval: Annotation<string | null>({ reducer: (_, b) => b, default: () => null }),
   errors: Annotation<{ node: string; message: string }[]>({
     reducer: (a, b) => a.concat(b),
     default: () => [],
-  }),
-  decisions: Annotation<DecisionLog>({
-    reducer: (a, b) => ({ ...a, ...b }),
-    default: () => ({}),
   }),
 });
 
@@ -90,15 +105,20 @@ async function withRetry<T>(
   throw lastErr;
 }
 
-export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "dad" | "either"; keywords: string[] }[]) {
+export function buildGraph(
+  deps: AgentDeps,
+  assignmentRules: { owner: Assignee; keywords: string[] }[]
+) {
   const g = new StateGraph(State);
 
   g.addNode("ingest", async (s: S) => {
+    if (s.extracted) return {}; // resumed; already past ingest
     await deps.recordEvent("ingest", "start", { source: s.input.source });
     return {};
   });
 
   g.addNode("extract", async (s: S) => {
+    if (s.extracted) return {};
     await deps.recordEvent("extract", "start", {});
     try {
       const extracted = await withRetry(deps, "extract", () =>
@@ -113,7 +133,7 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
   });
 
   g.addNode("assign", async (s: S) => {
-    if (!s.extracted) return {};
+    if (s.assignment || !s.extracted) return {};
     await deps.recordEvent("assign", "start", {});
     const assignment = await assignTo(s.extracted, assignmentRules);
     await deps.recordEvent("assign", "end", { assignment });
@@ -121,20 +141,21 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
   });
 
   g.addNode("approveSave", async (s: S) => {
+    if (s.itemId) return {}; // already saved
     if (!s.extracted || !s.assignment) return {};
-    const key = "approveSave";
-    const proposal: ApprovalProposal = {
-      kind: "save_item",
-      item: s.extracted,
-      assignment: s.assignment,
-    };
-    await deps.recordEvent("approveSave", "interrupt", { proposal });
-    // interrupt() returns the resumed value when re-invoked with that decision.
-    const decision = interrupt({ key, proposal }) as
-      | { action: "approve" | "edit" | "reject"; patch?: Partial<ExtractedItem & { assignee: "mom" | "dad" | "either" }> }
-      | undefined;
-    if (!decision || decision.action === "reject") {
-      await deps.recordEvent("approveSave", "end", { decision: decision ?? null, status: "rejected" });
+    const decision = s.decisions.approveSave;
+    if (!decision) {
+      const proposal: ApprovalProposal = {
+        kind: "save_item",
+        item: s.extracted,
+        assignment: s.assignment,
+      };
+      await deps.writeApproval("approveSave", "approveSave", "save_item", proposal);
+      await deps.recordEvent("approveSave", "interrupt", { proposal });
+      return { pendingApproval: "approveSave" };
+    }
+    if (decision.action === "reject") {
+      await deps.recordEvent("approveSave", "end", { decision, status: "rejected" });
       return {};
     }
     const item = { ...s.extracted, ...(decision.patch ?? {}) } as ExtractedItem;
@@ -142,7 +163,6 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
       decision.patch?.assignee != null
         ? { ...s.assignment, assignee: decision.patch.assignee }
         : s.assignment;
-    await deps.recordEvent("approveSave", "end", { decision });
     const itemId = await saveItem(
       deps.supabase,
       deps.userId,
@@ -153,13 +173,16 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
       s.input.imageUrl ?? null,
       s.input.sourceRef
     );
+    await deps.recordEvent("approveSave", "end", { decision, itemId });
     return { extracted: item, assignment, itemId };
   });
 
   g.addNode("approveCalendar", async (s: S) => {
+    if (s.calendarEventId) return {};
     if (!s.extracted) return {};
     const dueLike = s.extracted.due_at ?? s.extracted.expires_at ?? s.extracted.rsvp_by;
     if (!dueLike) return {};
+    const decision = s.decisions.approveCalendar;
     const startISO = dueLike;
     const endISO = new Date(new Date(dueLike).getTime() + 30 * 60_000).toISOString();
     const summary = `${s.extracted.title}${s.extracted.due_at ? " — due" : s.extracted.expires_at ? " — expires" : " — RSVP"}`;
@@ -171,19 +194,14 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
     ]
       .filter(Boolean)
       .join("\n");
-    const proposal: ApprovalProposal = {
-      kind: "create_calendar_event",
-      summary,
-      description,
-      startISO,
-      endISO,
-    };
-    await deps.recordEvent("approveCalendar", "interrupt", { proposal });
-    const decision = interrupt({ key: "approveCalendar", proposal }) as
-      | { action: "approve" | "reject"; patch?: { summary?: string; description?: string; startISO?: string; endISO?: string } }
-      | undefined;
-    if (!decision || decision.action === "reject") {
-      await deps.recordEvent("approveCalendar", "end", { decision: decision ?? null, status: "rejected" });
+    const proposal: ApprovalProposal = { kind: "create_calendar_event", summary, description, startISO, endISO };
+    if (!decision) {
+      await deps.writeApproval("approveCalendar", "approveCalendar", "create_calendar_event", proposal);
+      await deps.recordEvent("approveCalendar", "interrupt", { proposal });
+      return { pendingApproval: "approveCalendar" };
+    }
+    if (decision.action === "reject") {
+      await deps.recordEvent("approveCalendar", "end", { decision, status: "rejected" });
       return {};
     }
     try {
@@ -208,10 +226,16 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
     if (!s.itemId) return {};
     const dueLike = s.extracted?.due_at ?? s.extracted?.expires_at ?? s.extracted?.rsvp_by;
     if (!dueLike) return {};
-    // Schedule nudge 1 day before due
     const dueMs = new Date(dueLike).getTime();
     if (Number.isNaN(dueMs)) return {};
     const nudgeAt = new Date(Math.max(Date.now() + 60_000, dueMs - 24 * 3600_000));
+    // Avoid duplicates on resume
+    const { data: existing } = await deps.supabase
+      .from("followups")
+      .select("id")
+      .eq("item_id", s.itemId)
+      .maybeSingle();
+    if (existing) return {};
     const { error } = await deps.supabase.from("followups").insert({
       user_id: deps.userId,
       item_id: s.itemId,
@@ -224,6 +248,8 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
     return {};
   });
 
+  const ifPending = (s: S, next: string) => (s.pendingApproval ? END : next);
+
   g.addEdge(START, "ingest" as never);
   g.addEdge("ingest" as never, "extract" as never);
   g.addConditionalEdges(
@@ -234,10 +260,14 @@ export function buildGraph(deps: AgentDeps, assignmentRules: { owner: "mom" | "d
   g.addEdge("assign" as never, "approveSave" as never);
   g.addConditionalEdges(
     "approveSave" as never,
-    (s: S) => (s.itemId ? "approveCalendar" : END),
+    (s: S) => ifPending(s, s.itemId ? "approveCalendar" : END),
     { approveCalendar: "approveCalendar" as never, [END]: END }
   );
-  g.addEdge("approveCalendar" as never, "scheduleFollowup" as never);
+  g.addConditionalEdges(
+    "approveCalendar" as never,
+    (s: S) => ifPending(s, "scheduleFollowup"),
+    { scheduleFollowup: "scheduleFollowup" as never, [END]: END }
+  );
   g.addEdge("scheduleFollowup" as never, END);
 
   return g.compile();
