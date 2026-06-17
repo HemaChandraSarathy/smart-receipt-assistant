@@ -36,6 +36,7 @@ function AuthPage() {
     setErr(null);
     const result = await lovable.auth.signInWithOAuth("google", {
       redirect_uri: window.location.origin + "/inbox",
+      extraParams: { prompt: "select_account" },
     });
     if (result.error) setErr(String((result.error as Error).message ?? result.error));
     if (!result.redirected) setBusy(false);
