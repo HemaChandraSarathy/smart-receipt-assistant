@@ -7,7 +7,8 @@ import { Client as LangSmithClient } from "langsmith";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildGraph, type AgentState, type InitialInput } from "./graph.server";
-import type { ApprovalProposal, DecisionLog } from "./types";
+import type { ApprovalProposal } from "./types";
+import type { DecisionLog } from "./graph.server";
 
 const LANGSMITH_PROJECT = process.env.LANGSMITH_PROJECT || "receipts-agent";
 
@@ -110,16 +111,19 @@ export async function runAgent(args: {
     .update({
       status: newStatus,
       current_node: result.pendingApproval ?? null,
-      input_ref: { input: result.input, state: stripStateForStorage(result) } as unknown as Record<string, unknown>,
-      ended_at: newStatus === "running" || newStatus === "awaiting_approval" ? null : new Date().toISOString(),
+      input_ref: JSON.parse(
+        JSON.stringify({ input: result.input, state: stripStateForStorage(result) })
+      ),
+      ended_at: newStatus === "awaiting_approval" ? null : new Date().toISOString(),
       error: result.errors[0]?.message ?? null,
       langsmith_url: langsmithProjectUrl(threadId),
     })
     .eq("id", runId);
 
-  if (lsRun && ls) {
+  const lsRunId = (lsRun as { id?: string } | null)?.id;
+  if (lsRunId && ls) {
     await ls
-      .updateRun(lsRun.id ?? "", {
+      .updateRun(lsRunId, {
         outputs: { state: stripStateForStorage(result), status: newStatus },
         end_time: Date.now(),
       })

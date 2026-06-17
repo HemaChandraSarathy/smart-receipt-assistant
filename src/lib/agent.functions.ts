@@ -132,13 +132,13 @@ export const resumeRun = createServerFn({ method: "POST" })
     const status = data.decision.action === "reject" ? "rejected" : data.decision.action === "edit" ? "edited" : "approved";
     await supabase
       .from("approvals")
-      .update({ status, decision: data.decision as unknown as Record<string, unknown>, decided_at: new Date().toISOString() })
+      .update({ status, decision: JSON.parse(JSON.stringify(data.decision)), decided_at: new Date().toISOString() })
       .eq("id", data.approvalId);
 
     const { runAgent, rehydrateState } = await import("@/lib/agent/runtime.server");
-    const state = rehydrateState(run.input_ref ?? {});
+    const state = rehydrateState((run.input_ref as Record<string, unknown>) ?? {});
     // record decision in state under the approval's node key
-    state.decisions = { ...state.decisions, [appr.node]: data.decision };
+    state.decisions = { ...state.decisions, [appr.node]: data.decision as never };
 
     await supabase.from("agent_runs").update({ status: "running", current_node: null }).eq("id", data.runId);
     const result = await runAgent({ supabase, userId, runId: data.runId, threadId: run.thread_id, state });
@@ -227,11 +227,6 @@ export const getStorageSignedUrl = createServerFn({ method: "POST" })
     const { data: signed, error } = await context.supabase.storage
       .from("receipts")
       .createSignedUrl(data.path, 60 * 60);
-    if (error) throw new Error(error.message);
-    return { url: signseed(signed?.signedUrl) };
+    if (error || !signed?.signedUrl) throw new Error(error?.message ?? "no signed url");
+    return { url: signed.signedUrl };
   });
-
-function signseed(u: string | null | undefined): string {
-  if (!u) throw new Error("no signed url");
-  return u;
-}
