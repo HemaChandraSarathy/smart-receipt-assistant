@@ -159,7 +159,8 @@ function ApprovalCard({ approval }: { approval: Approval }) {
     );
   }
 
-  // calendar
+  // calendar (narrowed)
+  if (approval.proposal.kind !== "create_calendar_event") return null;
   const cal = approval.proposal;
   return (
     <Card className="p-5">

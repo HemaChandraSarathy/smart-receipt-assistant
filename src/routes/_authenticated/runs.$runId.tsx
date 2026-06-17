@@ -49,20 +49,23 @@ function RunDetail() {
 
       <h2 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Timeline</h2>
       <div className="space-y-2">
-        {(data?.events ?? []).map((e: { id: string; node: string; kind: string; payload: Record<string, unknown>; ts: string }) => (
-          <Card key={e.id} className="p-3">
-            <div className="flex items-baseline justify-between">
-              <span className="font-medium text-sm">{e.node}</span>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{e.kind}</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">{format(new Date(e.ts), "p")}</p>
-            {Object.keys(e.payload ?? {}).length > 0 && (
-              <pre className="mt-2 text-[11px] bg-muted p-2 rounded overflow-x-auto max-h-40">
-                {JSON.stringify(e.payload, null, 2)}
-              </pre>
-            )}
-          </Card>
-        ))}
+        {(data?.events ?? []).map((e) => {
+          const payload = (e.payload ?? {}) as Record<string, unknown>;
+          return (
+            <Card key={e.id} className="p-3">
+              <div className="flex items-baseline justify-between">
+                <span className="font-medium text-sm">{e.node}</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{e.kind}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{format(new Date(e.ts), "p")}</p>
+              {Object.keys(payload).length > 0 && (
+                <pre className="mt-2 text-[11px] bg-muted p-2 rounded overflow-x-auto max-h-40">
+                  {JSON.stringify(payload, null, 2)}
+                </pre>
+              )}
+            </Card>
+          );
+        })}
         {data && data.events.length === 0 && (
           <p className="text-sm text-muted-foreground">No events yet.</p>
         )}
