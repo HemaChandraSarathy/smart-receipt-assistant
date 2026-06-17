@@ -1,189 +1,31 @@
+## What's going on
 
-# Receipts Agent — LangGraph.js Plan
+Two separate things got tangled:
 
-## Goal
+1. **App login (who you are in the app)** — Google is silently re-using your personal Gmail session from the browser, so even though you intended to pick `sarmahousehold@gmail.com`, Google never asked.
+2. **Gmail inbox the agent reads** — this is the workspace Gmail *connector*, completely separate from app login. It currently points at your personal Gmail and needs to be re-pointed at the project Gmail.
 
-Replace one-shot LLM calls with a real **agent**: a `StateGraph` that decides
-the next node, calls tools, persists state between steps, retries on tool
-failure, and **pauses for your approval before any external action**
-(calendar create, email send, task assign, follow-up nag). All traced to
-LangSmith.
+Yes — the system is a true agentic workflow (graph-based routing, tool calls, persisted state across stateless Workers, error capture, and human-in-the-loop approval gates before any write/calendar/email action).
 
-## Architecture
+## Plan
 
-```text
-┌─────────── React (TanStack) ───────────┐
-│  Upload photo / Scan Gmail / Inbox /   │
-│  Approval Queue / Run Timeline         │
-└──────────────┬─────────────────────────┘
-               │ useServerFn
-┌──────────────▼─────────────────────────┐
-│  Server functions (CF Workers)         │
-│   - startRun(input)                    │
-│   - resumeRun(runId, decision)         │
-│   - getRun(runId), listPendingApprov() │
-└──────────────┬─────────────────────────┘
-               │
-┌──────────────▼─────────────────────────┐
-│  LangGraph.js StateGraph               │
-│   nodes: ingest → categorize → topic   │
-│          → extract → assign            │
-│          → [HITL] → side-effects       │
-│          → memorize → schedule-followup│
-│   checkpointer: Postgres (Cloud)       │
-│   tracer: LangSmith                    │
-└──────────────┬─────────────────────────┘
-               │
-┌──────────────▼─────────────────────────┐
-│  Tools                                 │
-│   visionExtract  (Lovable AI Gemini)   │
-│   gmailSearch    (connector gateway)   │
-│   gmailGetMsg    (connector gateway)   │
-│   calendarCreate (connector gateway)   │
-│   dbWriteItem    (Supabase)            │
-│   dbSemanticSearch (pgvector)          │
-│   sendReminderEmail (Lovable Email)    │
-└────────────────────────────────────────┘
-```
+### 1. Fix the app login so it always asks which Google account to use
+Update the Google sign-in call in `src/routes/auth.tsx` to pass `prompt: "select_account"` via `extraParams`. This forces Google's account chooser every time instead of auto-signing you in with whichever Google account your browser remembers.
 
-## The Graph
+Then, so you can actually switch:
+- Sign out of the app (if signed in as the personal account).
+- On the auth page, click "Continue with Google" → Google will now show the picker → choose `sarmahousehold@gmail.com`.
 
-Nodes (each is short — Workers have no persistent process; the checkpointer
-lets the graph resume across invocations):
+If the personal account is still the only one Google offers, it's because the browser only has that one Google session. Add the project account to Chrome (or sign into gmail.com with it once in the same browser), then retry — the picker will list both.
 
-1. **ingest** — normalize input (uploaded image, or one Gmail message)
-2. **categorize** — bill / promo / coupon / invite / receipt (+ confidence)
-3. **topic** — "HVAC promo", "medical bill", "theatre RSVP", etc.
-4. **extract** — merchant, amount, due/expiry date, RSVP-by, raw text
-5. **assign** — Mom vs Dad from your responsibility map; low-confidence → ask
-6. **approvalGate** (HITL) — `interrupt()` with a proposal payload
-7. **sideEffects** (parallel branch after approval)
-   - `calendarCreate` for due dates / expiries / RSVPs
-   - `dbWriteItem` (persist final item)
-   - `memorize` (embedding into pgvector for "do I have a plumbing coupon?")
-8. **scheduleFollowup** — write a row that the daily cron will pick up
-9. **end** — emit run summary
+### 2. Re-point the Gmail connector at the project Gmail
+The Gmail connector is workspace-scoped, not per-user, so reconnecting it changes which inbox the agent scans for everyone. I'll trigger a reconnect flow for the Gmail connection so you can authorize `sarmahousehold@gmail.com` instead of your personal account. Same thing for Google Calendar if you want events created on the project calendar.
 
-Conditional edges:
-- `categorize.confidence < 0.6` → loop back with vision tool at higher detail
-- `assign.confidence < 0.7` → route to HITL with "who owns this?" question
-- any tool error → `retryNode` (exponential backoff, max 3) → if still failing
-  → HITL with the error and a "skip / retry / edit" choice
+### 3. (No code changes needed for the agent itself)
+The agentic workflow is already in place — LangGraph state machine, tool nodes (Gmail, Vision, Calendar, embeddings), persisted `agent_runs` state for resume-across-Workers, error tracking, and `approvals` gates with `resumeRun`. Nothing to change there.
 
-Reducers on state: `messages` (append), `toolCalls` (append),
-`errors` (append), `proposals` (replace), `decisions` (append).
+## Technical details
 
-## Human-in-the-Loop
-
-LangGraph `interrupt()` halts the run and persists state. The server fn
-returns `{ status: "awaiting_approval", runId, proposal }`. UI shows a
-**Pending Approvals** screen; you Approve / Edit / Reject. `resumeRun`
-calls `graph.invoke(null, { configurable: { thread_id: runId } })` with
-the `Command({ resume: decision })` payload, the graph picks up at the
-exact node, and only then does any external write happen.
-
-Approval points (per your answer "approve before any external action"):
-- Before `calendarCreate`
-- Before `sendReminderEmail` (both initial nudge schedule and each daily fire)
-- Before final `dbWriteItem` on first-time topic/assignee mappings
-
-## Schema (Lovable Cloud / Postgres)
-
-- `agent_runs` — id, thread_id, status (running/awaiting/done/failed),
-  input_kind, input_ref, started_at, ended_at, langsmith_url
-- `agent_checkpoints` — managed by LangGraph's Postgres checkpointer
-  (`PostgresSaver`); one row per super-step per thread
-- `agent_events` — id, run_id, node, kind (start/end/tool/error/interrupt),
-  payload jsonb, ts (powers the in-app timeline)
-- `approvals` — id, run_id, node, proposal jsonb, status
-  (pending/approved/edited/rejected), decided_by, decided_at, decision jsonb
-- `items` — final receipts/promos/bills (category, topic, assignee, amount,
-  due_at, expires_at, merchant, image_url, source: photo|gmail, raw jsonb,
-  embedding vector(768))
-- `assignment_rules` — owner, keywords[] (seeded with your Mom/Dad map; the
-  assign node consults this + LLM)
-- `followups` — item_id, next_nudge_at, channel (email/in_app), state
-- pgvector extension on `items.embedding` for semantic memory query
-
-All RLS-scoped to `auth.uid()`; grants per Cloud rules.
-
-## Tools (LangChain `tool()` wrappers)
-
-Each tool is a thin TS function with a Zod input schema, called from inside a
-node. Failures throw a typed `ToolError` the graph catches.
-
-- **visionExtract** → Lovable AI Gateway, `google/gemini-2.5-pro` with image
-  input, returns structured JSON via AI SDK `Output.object`
-- **gmailSearch / gmailGetMessage** → connector gateway
-  `https://connector-gateway.lovable.dev/google_mail/gmail/v1/...`
-- **calendarCreate** → connector gateway `/google_calendar/calendar/v3/...`
-  (guarded behind approval gate)
-- **dbWriteItem / dbSemanticSearch** → Supabase via `requireSupabaseAuth`
-  context inside the server fn
-- **embedText** → Lovable AI embeddings endpoint
-- **sendReminderEmail** → Lovable Email (set up if/when you enable email
-  domain; otherwise in-app only for v1)
-
-## Observability
-
-- LangSmith tracer wired on the graph; every run gets a shareable trace URL
-  stored on `agent_runs.langsmith_url`
-- In-app **Run Timeline** reads `agent_events` and renders node-by-node with
-  inputs, outputs, tool calls, errors, and approval decisions
-- LangSmith API key requested via `add_secret` as `LANGSMITH_API_KEY` (plus
-  `LANGSMITH_PROJECT`) when we start build
-
-## UI Surfaces (new)
-
-- **Capture** — snap/upload photo OR "Scan Gmail (last 30 days)" button →
-  spawns one run per item
-- **Pending Approvals** — queue of `interrupt()`s with proposed action,
-  source preview, edit form, Approve/Reject
-- **Inbox** — final items grouped by assignee, filterable by category/topic,
-  with due/expiry badges
-- **Run Timeline** — per-run graph trace + LangSmith deep link
-- **Ask** — chat box that runs semantic search over `items` ("do I have a
-  plumbing coupon?")
-
-## Prerequisites (handled at start of build)
-
-- Connect **Gmail** and **Google Calendar** connectors (the earlier Gmail
-  connect was interrupted — I'll redo both)
-- Add secrets: `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`
-- Install: `@langchain/core`, `@langchain/langgraph`,
-  `@langchain/langgraph-checkpoint-postgres`, `langsmith`, `zod`, `pg`
-- Enable `pgvector` extension; create tables + RLS + grants
-
-## Build Order
-
-1. Design system + auth (email + Google) + PWA manifest
-2. DB schema + RLS + pgvector + seed `assignment_rules` from your Mom/Dad map
-3. Connect Gmail + Calendar; verify with one gateway call each
-4. Agent core: state shape, checkpointer, LangSmith tracer, `startRun` /
-   `resumeRun` server fns
-5. Nodes + tools, one at a time, each with a smoke test:
-   ingest → categorize → topic → extract → assign → approvalGate →
-   sideEffects → memorize → scheduleFollowup
-6. UI: Capture, Pending Approvals, Inbox, Run Timeline, Ask
-7. Daily follow-up cron (`pg_cron` → `/api/public/hooks/run-followups`) that
-   spawns follow-up runs (which also hit the approval gate before sending)
-
-## Explicitly Out of Scope for v1
-
-- Native iOS/Android (PWA only)
-- Outlook / iCloud
-- Auto-paying bills
-- Multi-tenant household sharing UI (single household, you + husband as two
-  assignee values — sharing UI can come later)
-- Voice input
-
-## Key Trade-offs to Know
-
-- **Cloudflare Workers are stateless.** The graph runs one logical phase per
-  server-fn invocation; the Postgres checkpointer is what makes "agent that
-  holds state across steps" possible. Long single calls will hit Worker CPU
-  limits, so nodes stay small and the graph fans out across invocations.
-- **LangGraph.js < LangGraph Python** in feature parity. We get StateGraph,
-  checkpointers, interrupts, conditional edges, tool nodes, LangSmith
-  tracing. We do NOT get the Python-only LangGraph Cloud control plane — the
-  in-app Run Timeline + LangSmith fill that role.
+- `src/routes/auth.tsx` `onGoogle()` → add `extraParams: { prompt: "select_account" }` to the `lovable.auth.signInWithOAuth("google", ...)` call. One-line change.
+- Reconnect Gmail and Google Calendar connectors via the connector reconnect flow so the new account's tokens replace the existing ones.
+- No DB, RLS, or agent code changes.
