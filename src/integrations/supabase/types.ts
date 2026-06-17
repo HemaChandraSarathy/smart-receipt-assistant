@@ -14,16 +14,363 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_checkpoints: {
+        Row: {
+          checkpoint_id: string
+          created_at: string
+          parent_id: string | null
+          payload: Json
+          thread_id: string
+          user_id: string
+        }
+        Insert: {
+          checkpoint_id: string
+          created_at?: string
+          parent_id?: string | null
+          payload: Json
+          thread_id: string
+          user_id: string
+        }
+        Update: {
+          checkpoint_id?: string
+          created_at?: string
+          parent_id?: string | null
+          payload?: Json
+          thread_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_events: {
+        Row: {
+          id: string
+          kind: string
+          node: string
+          payload: Json
+          run_id: string
+          ts: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          node: string
+          payload?: Json
+          run_id: string
+          ts?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          node?: string
+          payload?: Json
+          run_id?: string
+          ts?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_runs: {
+        Row: {
+          created_at: string
+          current_node: string | null
+          ended_at: string | null
+          error: string | null
+          id: string
+          input_kind: string
+          input_ref: Json
+          langsmith_url: string | null
+          started_at: string
+          status: Database["public"]["Enums"]["run_status"]
+          thread_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_node?: string | null
+          ended_at?: string | null
+          error?: string | null
+          id?: string
+          input_kind: string
+          input_ref?: Json
+          langsmith_url?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["run_status"]
+          thread_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_node?: string | null
+          ended_at?: string | null
+          error?: string | null
+          id?: string
+          input_kind?: string
+          input_ref?: Json
+          langsmith_url?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["run_status"]
+          thread_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      approvals: {
+        Row: {
+          action_kind: string
+          created_at: string
+          decided_at: string | null
+          decision: Json | null
+          id: string
+          node: string
+          proposal: Json
+          run_id: string
+          status: Database["public"]["Enums"]["approval_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_kind: string
+          created_at?: string
+          decided_at?: string | null
+          decision?: Json | null
+          id?: string
+          node: string
+          proposal: Json
+          run_id: string
+          status?: Database["public"]["Enums"]["approval_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_kind?: string
+          created_at?: string
+          decided_at?: string | null
+          decision?: Json | null
+          id?: string
+          node?: string
+          proposal?: Json
+          run_id?: string
+          status?: Database["public"]["Enums"]["approval_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assignment_rules: {
+        Row: {
+          created_at: string
+          id: string
+          keywords: string[]
+          owner: Database["public"]["Enums"]["assignee"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          keywords?: string[]
+          owner: Database["public"]["Enums"]["assignee"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          keywords?: string[]
+          owner?: Database["public"]["Enums"]["assignee"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      followups: {
+        Row: {
+          attempts: number
+          channel: string
+          created_at: string
+          id: string
+          item_id: string
+          last_run_at: string | null
+          next_nudge_at: string
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          channel?: string
+          created_at?: string
+          id?: string
+          item_id: string
+          last_run_at?: string | null
+          next_nudge_at: string
+          state?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          channel?: string
+          created_at?: string
+          id?: string
+          item_id?: string
+          last_run_at?: string | null
+          next_nudge_at?: string
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "followups_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      items: {
+        Row: {
+          amount: number | null
+          archived: boolean
+          assignee: Database["public"]["Enums"]["assignee"]
+          category: Database["public"]["Enums"]["item_category"]
+          created_at: string
+          currency: string | null
+          description: string | null
+          due_at: string | null
+          embedding: string | null
+          expires_at: string | null
+          id: string
+          image_url: string | null
+          merchant: string | null
+          raw: Json | null
+          rsvp_by: string | null
+          run_id: string | null
+          source: string
+          source_ref: Json | null
+          title: string
+          topic: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number | null
+          archived?: boolean
+          assignee?: Database["public"]["Enums"]["assignee"]
+          category?: Database["public"]["Enums"]["item_category"]
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          due_at?: string | null
+          embedding?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          merchant?: string | null
+          raw?: Json | null
+          rsvp_by?: string | null
+          run_id?: string | null
+          source: string
+          source_ref?: Json | null
+          title: string
+          topic?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number | null
+          archived?: boolean
+          assignee?: Database["public"]["Enums"]["assignee"]
+          category?: Database["public"]["Enums"]["item_category"]
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          due_at?: string | null
+          embedding?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          merchant?: string | null
+          raw?: Json | null
+          rsvp_by?: string | null
+          run_id?: string | null
+          source?: string
+          source_ref?: Json | null
+          title?: string
+          topic?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "items_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_items: {
+        Args: { match_count?: number; query_embedding: string }
+        Returns: {
+          amount: number
+          assignee: Database["public"]["Enums"]["assignee"]
+          category: Database["public"]["Enums"]["item_category"]
+          due_at: string
+          expires_at: string
+          id: string
+          merchant: string
+          similarity: number
+          title: string
+          topic: string
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      approval_status: "pending" | "approved" | "edited" | "rejected"
+      assignee: "mom" | "dad" | "either"
+      item_category:
+        | "bill"
+        | "promo"
+        | "coupon"
+        | "invite"
+        | "receipt"
+        | "other"
+      run_status:
+        | "running"
+        | "awaiting_approval"
+        | "done"
+        | "failed"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +497,17 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      approval_status: ["pending", "approved", "edited", "rejected"],
+      assignee: ["mom", "dad", "either"],
+      item_category: ["bill", "promo", "coupon", "invite", "receipt", "other"],
+      run_status: [
+        "running",
+        "awaiting_approval",
+        "done",
+        "failed",
+        "cancelled",
+      ],
+    },
   },
 } as const
