@@ -9,6 +9,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 const StartFromImageInput = z.object({
   imageUrl: z.string().url(),
   storagePath: z.string().optional(),
+  note: z.string().max(2000).optional(),
 });
 
 export const startRunFromImage = createServerFn({ method: "POST" })
@@ -17,6 +18,9 @@ export const startRunFromImage = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const threadId = crypto.randomUUID();
+    const noteText = data.note?.trim()
+      ? `Additional context from the user about this image: ${data.note.trim()}\n\nExtract structured data from this document.`
+      : null;
     const { data: run, error } = await supabase
       .from("agent_runs")
       .insert({
@@ -25,7 +29,7 @@ export const startRunFromImage = createServerFn({ method: "POST" })
         status: "running",
         input_kind: "photo",
         input_ref: {
-          input: { source: "photo", imageUrl: data.imageUrl, text: null, sourceRef: { storagePath: data.storagePath } },
+          input: { source: "photo", imageUrl: data.imageUrl, text: noteText, sourceRef: { storagePath: data.storagePath } },
           state: {},
         },
       })
@@ -37,12 +41,13 @@ export const startRunFromImage = createServerFn({ method: "POST" })
     const state = emptyState({
       source: "photo",
       imageUrl: data.imageUrl,
-      text: null,
+      text: noteText,
       sourceRef: { storagePath: data.storagePath },
     });
     const result = await runAgent({ supabase, userId, runId: run.id, threadId, state });
     return { runId: run.id as string, status: result.pendingApproval ? "awaiting_approval" : "done" };
   });
+
 
 // ---- start a run from arbitrary text (e.g. pasted email body) ----
 const StartFromTextInput = z.object({ text: z.string().min(1).max(20_000) });
