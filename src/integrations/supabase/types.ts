@@ -257,6 +257,24 @@ export type Database = {
           },
         ]
       }
+      gmail_scan_state: {
+        Row: {
+          last_scanned_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          last_scanned_at?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          last_scanned_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       golden_examples: {
         Row: {
           created_at: string
