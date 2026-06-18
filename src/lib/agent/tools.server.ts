@@ -30,16 +30,16 @@ function gatewayHeaders(connectorKeyEnv: string) {
 }
 
 // ---------- visionExtract: image -> ExtractedItem ----------
-const nullableStr = z
-  .union([z.string(), z.number(), z.null(), z.undefined()])
-  .transform((v) => (v === null || v === undefined || v === "" ? null : String(v)));
-const nullableNum = z
-  .union([z.number(), z.string(), z.null(), z.undefined()])
-  .transform((v) => {
-    if (v === null || v === undefined || v === "") return null;
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) ? n : null;
-  });
+const nullableStr = z.unknown().optional().transform((v) => {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  return null;
+});
+const nullableNum = z.unknown().optional().transform((v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^0-9.-]/g, "")) : NaN;
+  return Number.isFinite(n) ? n : null;
+});
 const extractedSchema = z.object({
   category: z.enum(["bill", "promo", "coupon", "invite", "receipt", "other"]).catch("other"),
   category_confidence: nullableNum.transform((v) => (v == null ? 0.5 : Math.max(0, Math.min(1, v)))),
