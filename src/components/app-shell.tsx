@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Inbox as InboxIcon, CheckCircle2, MessageCircle, Activity, LogOut, CalendarDays, Plus } from "lucide-react";
+import { Inbox as InboxIcon, CheckCircle2, MessageCircle, Activity, LogOut, CalendarDays, Plus, FlaskConical } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -148,6 +148,9 @@ export function PageShell({ title, action, children }: { title: string; action?:
           <h1 className="font-serif text-2xl text-foreground truncate">{title}</h1>
           <div className="flex items-center gap-1">
             {action}
+            <Button asChild variant="ghost" size="icon" aria-label="Golden dataset">
+              <Link to="/golden"><FlaskConical className="h-4 w-4" /></Link>
+            </Button>
             <Button asChild variant="ghost" size="icon" aria-label="Calendar">
               <Link to="/calendar"><CalendarDays className="h-4 w-4" /></Link>
             </Button>
