@@ -61,6 +61,11 @@ function CapturePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const scanState = useQuery({
+    queryKey: ["gmail-scan-state"],
+    queryFn: () => getGmailScanState(),
+  });
+
   const gmailScan = useMutation({
     mutationFn: async () => scan({ data: undefined } as never),
     onSuccess: (r) => {
