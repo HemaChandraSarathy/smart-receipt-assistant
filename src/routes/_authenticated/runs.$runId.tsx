@@ -214,7 +214,7 @@ function renderSummary(key: AgentKey, payload?: Record<string, unknown>) {
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted">
           <Tag className="h-3 w-3" />{String(ex.category ?? "—")}
         </span>
-        {ex.title && <span className="text-foreground">{String(ex.title)}</span>}
+        {ex.title != null && <span className="text-foreground">{String(ex.title)}</span>}
         {conf != null && <span className="text-muted-foreground">· conf {Math.round(conf * 100)}%</span>}
       </div>
     );
