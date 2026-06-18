@@ -95,7 +95,10 @@ function InboxPage() {
   const list = useServerFn(listItems);
   const { data, isLoading } = useQuery({
     queryKey: ["items"],
-    queryFn: async () => (await list()) as unknown as Item[],
+    queryFn: async () => {
+      const rows = (await list()) as unknown as Item[];
+      return rows.map((r) => ({ ...r, category: normalizeCategory(r.category) }));
+    },
     refetchInterval: 10_000,
   });
   const [status, setStatus] = useState<Status>("open");
