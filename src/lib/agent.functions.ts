@@ -892,7 +892,7 @@ export const updateItem = createServerFn({ method: "POST" })
       newDateISO = data.due_at;
     }
 
-    const { error: upErr } = await supabase.from("items").update(patch).eq("id", data.itemId);
+    const { error: upErr } = await supabase.from("items").update(patch as never).eq("id", data.itemId);
     if (upErr) throw new Error(upErr.message);
 
     // Best-effort sync to Google Calendar.
