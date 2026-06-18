@@ -159,7 +159,11 @@ export function buildGraph(
     if (s.itemId) return {}; // already saved
     if (!s.extracted || !s.assignment) return {};
     const decision = s.decisions.approveSave;
-    if (!decision) {
+    const AUTO_APPROVE_THRESHOLD = 0.85;
+    const highConfidence =
+      (s.extracted.category_confidence ?? 0) >= AUTO_APPROVE_THRESHOLD &&
+      (s.assignment.confidence ?? 0) >= AUTO_APPROVE_THRESHOLD;
+    if (!decision && !highConfidence) {
       const proposal: ApprovalProposal = {
         kind: "save_item",
         item: s.extracted,
@@ -169,13 +173,13 @@ export function buildGraph(
       await deps.recordEvent("approveSave", "interrupt", { proposal });
       return { pendingApproval: "approveSave" };
     }
-    if (decision.action === "reject") {
+    if (decision?.action === "reject") {
       await deps.recordEvent("approveSave", "end", { decision, status: "rejected" });
       return {};
     }
-    const item = { ...s.extracted, ...(decision.patch ?? {}) } as ExtractedItem;
+    const item = { ...s.extracted, ...(decision?.patch ?? {}) } as ExtractedItem;
     const assignment: AssignmentProposal =
-      decision.patch?.assignee != null
+      decision?.patch?.assignee != null
         ? { ...s.assignment, assignee: decision.patch.assignee }
         : s.assignment;
     const itemId = await saveItem(
@@ -185,10 +189,14 @@ export function buildGraph(
       item,
       assignment,
       s.input.source,
-      s.input.imageUrl ?? null,
+      null, // image is purged after extract — never store URL
       s.input.sourceRef
     );
-    await deps.recordEvent("approveSave", "end", { decision, itemId });
+    await deps.recordEvent("approveSave", "end", {
+      decision: decision ?? { action: "auto-approve", reason: "high confidence" },
+      itemId,
+      auto: !decision,
+    });
     return { extracted: item, assignment, itemId };
   });
 
