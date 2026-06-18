@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedWinsRouteImport } from './routes/_authenticated/wins'
 import { Route as AuthenticatedRunsRouteImport } from './routes/_authenticated/runs'
 import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
 import { Route as AuthenticatedCaptureRouteImport } from './routes/_authenticated/capture'
@@ -35,11 +34,6 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedWinsRoute = AuthenticatedWinsRouteImport.update({
-  id: '/wins',
-  path: '/wins',
-  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedRunsRoute = AuthenticatedRunsRouteImport.update({
   id: '/runs',
@@ -92,7 +86,6 @@ export interface FileRoutesByFullPath {
   '/capture': typeof AuthenticatedCaptureRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
-  '/wins': typeof AuthenticatedWinsRoute
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/api/public/hooks/run-followups': typeof ApiPublicHooksRunFollowupsRoute
 }
@@ -105,7 +98,6 @@ export interface FileRoutesByTo {
   '/capture': typeof AuthenticatedCaptureRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
-  '/wins': typeof AuthenticatedWinsRoute
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/api/public/hooks/run-followups': typeof ApiPublicHooksRunFollowupsRoute
 }
@@ -120,7 +112,6 @@ export interface FileRoutesById {
   '/_authenticated/capture': typeof AuthenticatedCaptureRoute
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
   '/_authenticated/runs': typeof AuthenticatedRunsRouteWithChildren
-  '/_authenticated/wins': typeof AuthenticatedWinsRoute
   '/_authenticated/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/api/public/hooks/run-followups': typeof ApiPublicHooksRunFollowupsRoute
 }
@@ -135,7 +126,6 @@ export interface FileRouteTypes {
     | '/capture'
     | '/inbox'
     | '/runs'
-    | '/wins'
     | '/runs/$runId'
     | '/api/public/hooks/run-followups'
   fileRoutesByTo: FileRoutesByTo
@@ -148,7 +138,6 @@ export interface FileRouteTypes {
     | '/capture'
     | '/inbox'
     | '/runs'
-    | '/wins'
     | '/runs/$runId'
     | '/api/public/hooks/run-followups'
   id:
@@ -162,7 +151,6 @@ export interface FileRouteTypes {
     | '/_authenticated/capture'
     | '/_authenticated/inbox'
     | '/_authenticated/runs'
-    | '/_authenticated/wins'
     | '/_authenticated/runs/$runId'
     | '/api/public/hooks/run-followups'
   fileRoutesById: FileRoutesById
@@ -196,13 +184,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/wins': {
-      id: '/_authenticated/wins'
-      path: '/wins'
-      fullPath: '/wins'
-      preLoaderRoute: typeof AuthenticatedWinsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/runs': {
       id: '/_authenticated/runs'
@@ -281,7 +262,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCaptureRoute: typeof AuthenticatedCaptureRoute
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
   AuthenticatedRunsRoute: typeof AuthenticatedRunsRouteWithChildren
-  AuthenticatedWinsRoute: typeof AuthenticatedWinsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -291,7 +271,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCaptureRoute: AuthenticatedCaptureRoute,
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
   AuthenticatedRunsRoute: AuthenticatedRunsRouteWithChildren,
-  AuthenticatedWinsRoute: AuthenticatedWinsRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
