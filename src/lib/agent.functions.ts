@@ -735,5 +735,3 @@ export const deleteTrashedItemForever = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-    return { ok: true };
-  });
