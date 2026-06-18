@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRunsRouteImport } from './routes/_authenticated/runs'
 import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
 import { Route as AuthenticatedCaptureRouteImport } from './routes/_authenticated/capture'
+import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
 import { Route as AuthenticatedAskRouteImport } from './routes/_authenticated/ask'
 import { Route as AuthenticatedApprovalsRouteImport } from './routes/_authenticated/approvals'
 import { Route as AuthenticatedRunsRunIdRouteImport } from './routes/_authenticated/runs.$runId'
@@ -48,6 +49,11 @@ const AuthenticatedCaptureRoute = AuthenticatedCaptureRouteImport.update({
   path: '/capture',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCalendarRoute = AuthenticatedCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAskRoute = AuthenticatedAskRouteImport.update({
   id: '/ask',
   path: '/ask',
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/approvals': typeof AuthenticatedApprovalsRoute
   '/ask': typeof AuthenticatedAskRoute
+  '/calendar': typeof AuthenticatedCalendarRoute
   '/capture': typeof AuthenticatedCaptureRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
@@ -79,6 +86,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/approvals': typeof AuthenticatedApprovalsRoute
   '/ask': typeof AuthenticatedAskRoute
+  '/calendar': typeof AuthenticatedCalendarRoute
   '/capture': typeof AuthenticatedCaptureRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/approvals': typeof AuthenticatedApprovalsRoute
   '/_authenticated/ask': typeof AuthenticatedAskRoute
+  '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
   '/_authenticated/capture': typeof AuthenticatedCaptureRoute
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
   '/_authenticated/runs': typeof AuthenticatedRunsRouteWithChildren
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/approvals'
     | '/ask'
+    | '/calendar'
     | '/capture'
     | '/inbox'
     | '/runs'
@@ -113,6 +123,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/approvals'
     | '/ask'
+    | '/calendar'
     | '/capture'
     | '/inbox'
     | '/runs'
@@ -124,6 +135,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/approvals'
     | '/_authenticated/ask'
+    | '/_authenticated/calendar'
     | '/_authenticated/capture'
     | '/_authenticated/inbox'
     | '/_authenticated/runs'
@@ -180,6 +192,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCaptureRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/calendar': {
+      id: '/_authenticated/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof AuthenticatedCalendarRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ask': {
       id: '/_authenticated/ask'
       path: '/ask'
@@ -218,6 +237,7 @@ const AuthenticatedRunsRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedApprovalsRoute: typeof AuthenticatedApprovalsRoute
   AuthenticatedAskRoute: typeof AuthenticatedAskRoute
+  AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
   AuthenticatedCaptureRoute: typeof AuthenticatedCaptureRoute
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
   AuthenticatedRunsRoute: typeof AuthenticatedRunsRouteWithChildren
@@ -226,6 +246,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedApprovalsRoute: AuthenticatedApprovalsRoute,
   AuthenticatedAskRoute: AuthenticatedAskRoute,
+  AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
   AuthenticatedCaptureRoute: AuthenticatedCaptureRoute,
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
   AuthenticatedRunsRoute: AuthenticatedRunsRouteWithChildren,
