@@ -70,10 +70,19 @@ const CATS: Array<{ key: "all" | ItemCategory; label: string }> = [
   { key: "all", label: "All" },
   { key: "bill", label: "Bills" },
   { key: "promo", label: "Promos" },
-  { key: "coupon", label: "Coupons" },
   { key: "invite", label: "Invites" },
-  { key: "receipt", label: "Receipts" },
+  { key: "repair", label: "Repairs" },
+  { key: "return", label: "Returns" },
 ];
+
+// Normalize legacy categories stored in the DB (receipt → bill, coupon → promo)
+// so old rows keep showing up under the merged tabs.
+function normalizeCategory(c: string | null | undefined): ItemCategory {
+  if (c === "receipt") return "bill";
+  if (c === "coupon") return "promo";
+  if (c === "bill" || c === "promo" || c === "invite" || c === "repair" || c === "return") return c;
+  return "other";
+}
 
 const PARENT_TABS: Array<{ key: ParentFilter; label: string }> = [
   { key: "all", label: "All" },
