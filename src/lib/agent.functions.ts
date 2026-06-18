@@ -522,6 +522,7 @@ export const listWins = createServerFn({ method: "GET" })
       .from("items")
       .select("id, title, category, assignee, merchant, amount, currency, due_at, expires_at, rsvp_by, original_due_at, completed_at, reschedule_count")
       .eq("status", "done")
+      .is("deleted_at", null)
       .order("completed_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
@@ -534,6 +535,7 @@ export const listNotifications = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("notifications")
       .select("id, item_id, kind, title, body, read_at, created_at")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
@@ -550,5 +552,188 @@ export const markNotificationRead = createServerFn({ method: "POST" })
     } else if (data.id) {
       await context.supabase.from("notifications").update({ read_at: now }).eq("id", data.id);
     }
+    return { ok: true };
+  });
+
+// ============================================================
+// Soft delete + restore + trash views + bulk clear
+// ============================================================
+
+const IdInput = z.object({ id: z.string().uuid() });
+
+export const softDeleteItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    // best-effort: clear linked calendar event so reminders stop
+    const { data: row } = await supabase
+      .from("items")
+      .select("calendar_event_id, title")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (row?.calendar_event_id) {
+      try {
+        const { calendarPatchEvent } = await import("@/lib/agent/tools.server");
+        await calendarPatchEvent(row.calendar_event_id as string, { status: "cancelled" });
+      } catch (e) {
+        console.warn("calendar clear on delete failed", (e as Error).message);
+      }
+    }
+    const { error } = await supabase
+      .from("items")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const restoreItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("items")
+      .update({ deleted_at: null })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const softDeleteApproval = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("approvals")
+      .update({ deleted_at: new Date().toISOString(), status: "rejected" })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const softDeleteRun = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const now = new Date().toISOString();
+    await context.supabase.from("approvals").update({ deleted_at: now }).eq("run_id", data.id);
+    const { error } = await context.supabase
+      .from("agent_runs")
+      .update({ deleted_at: now })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const softDeleteNotification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("notifications")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// ---- bulk clears (all soft) ----
+export const clearCancelledItems = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("items")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("user_id", context.userId)
+      .eq("status", "cancelled")
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const clearReadNotifications = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("notifications")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("user_id", context.userId)
+      .not("read_at", "is", null)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const clearFinishedRuns = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("agent_runs")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("user_id", context.userId)
+      .in("status", ["done", "failed", "cancelled"])
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const rejectAllApprovals = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("approvals")
+      .update({
+        status: "rejected",
+        decided_at: new Date().toISOString(),
+        deleted_at: new Date().toISOString(),
+      })
+      .eq("user_id", context.userId)
+      .eq("status", "pending")
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// ---- trash view: items only (everything else stays out of sight) ----
+export const listTrashedItems = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("items")
+      .select("*")
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const emptyTrash = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId, supabase } = context;
+    // Hard-delete soft-deleted rows across all surfaces
+    const where = (tbl: "items" | "approvals" | "agent_runs" | "notifications") =>
+      supabase.from(tbl).delete().eq("user_id", userId).not("deleted_at", "is", null);
+    await Promise.all([where("items"), where("approvals"), where("agent_runs"), where("notifications")]);
+    return { ok: true };
+  });
+
+export const deleteTrashedItemForever = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => IdInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("items")
+      .delete()
+      .eq("id", data.id)
+      .not("deleted_at", "is", null);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
     return { ok: true };
   });
