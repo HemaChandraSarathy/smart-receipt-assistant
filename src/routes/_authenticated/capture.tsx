@@ -80,7 +80,7 @@ function CapturePage() {
       <Card className="p-5 mb-4">
         <h2 className="font-serif text-lg mb-1">Snap or upload a photo</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Bill, coupon, invite, receipt — anything on paper. The photo is deleted right after parsing; only the extracted details are kept.
+          Bill, promo, invite, repair, return — anything on paper. The photo is deleted right after parsing; only the extracted details are kept.
         </p>
 
         <label htmlFor="photo-note" className="text-sm font-medium block mb-1">

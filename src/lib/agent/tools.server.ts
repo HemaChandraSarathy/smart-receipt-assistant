@@ -41,7 +41,7 @@ const nullableNum = z.unknown().optional().transform((v) => {
   return Number.isFinite(n) ? n : null;
 });
 const extractedSchema = z.object({
-  category: z.enum(["bill", "promo", "coupon", "invite", "receipt", "other"]).catch("other"),
+  category: z.enum(["bill", "promo", "invite", "repair", "return", "other"]).catch("other"),
   category_confidence: nullableNum.transform((v) => (v == null ? 0.5 : Math.max(0, Math.min(1, v)))),
   topic: nullableStr,
   merchant: nullableStr,
@@ -65,8 +65,8 @@ HARD RULES — violating these is a failure:
 1. NEVER invent a year, month, or day that is not literally printed on the document. If the document says only a weekday ("Friday") or a relative phrase ("next month"), set due_at: null AND put the literal phrase in due_at_hint, AND set date_known: false.
 2. ALWAYS populate raw_text with a clean transcript of the document's main visible text (not your interpretation — the actual words).
 3. ALWAYS populate source_quote with the verbatim phrase from the document that justifies the due/amount/topic you extracted.
-4. category options: bill | promo | coupon | invite | receipt | other.
-5. topic: short noun phrase like "HVAC promo", "medical bill", "theatre RSVP".
+4. category options: bill (includes receipts/invoices/statements) | promo (includes coupons/discount offers) | invite (parties, RSVPs, social events, gatherings) | repair (service appointments, repair quotes/work orders) | return (return labels, refund windows, return-by deadlines) | other.
+5. topic: short noun phrase like "HVAC repair", "medical bill", "theatre RSVP", "Amazon return".
 6. title: 3-8 word human title.
 7. amount: numeric only, no currency symbol.
 8. Use null when something is unknown. Do not guess.
