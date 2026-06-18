@@ -440,18 +440,152 @@ export const deleteGoogleCalendarEvent = createServerFn({ method: "POST" })
   });
 
 
+type AskMatch = {
+  id: string;
+  title: string;
+  category: string;
+  topic: string | null;
+  assignee: string;
+  merchant: string | null;
+  amount: number | null;
+  due_at: string | null;
+  expires_at: string | null;
+  status: string | null;
+  completed_at: string | null;
+  similarity: number;
+};
+
+async function answerFromMatches(question: string, matches: AskMatch[]): Promise<string> {
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) throw new Error("Missing LOVABLE_API_KEY");
+  const { generateText } = await import("ai");
+  const { createLovableAiGatewayProvider } = await import("@/lib/ai-gateway.server");
+  const gateway = createLovableAiGatewayProvider(key);
+
+  const ctx = matches.length
+    ? matches
+        .map((m, i) =>
+          `[${i + 1}] title="${m.title}" category=${m.category}` +
+          (m.topic ? ` topic=${m.topic}` : "") +
+          (m.merchant ? ` merchant=${m.merchant}` : "") +
+          (m.amount != null ? ` amount=${m.amount}` : "") +
+          (m.due_at ? ` due_at=${m.due_at}` : "") +
+          (m.expires_at ? ` expires_at=${m.expires_at}` : "") +
+          ` status=${m.status ?? "open"}` +
+          (m.completed_at ? ` completed_at=${m.completed_at}` : "") +
+          ` similarity=${m.similarity.toFixed(2)}`,
+        )
+        .join("\n")
+    : "(no items found)";
+
+  const { text } = await generateText({
+    model: gateway("google/gemini-2.5-flash"),
+    system:
+      "You answer the user's question about their personal inbox of saved items. " +
+      "Rules: (1) Answer ONLY what was asked, in one or two short sentences. " +
+      "(2) Do not list unrelated items. (3) Use only the provided context — never invent facts. " +
+      "(4) If the context does not contain the answer, reply exactly: NO_MATCH. " +
+      "(5) For yes/no questions, start with Yes or No.",
+    messages: [
+      { role: "user", content: `Question: ${question}\n\nContext items:\n${ctx}` },
+    ],
+  });
+  return text.trim();
+}
+
 export const askMemory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ q: z.string().min(1).max(500) }).parse(d))
   .handler(async ({ data, context }) => {
     const { embedText } = await import("@/lib/ai-gateway.server");
-    const v = await embedText(data.q);
-    const { data: matches, error } = await context.supabase.rpc("match_items", {
-      query_embedding: v as unknown as string,
-      match_count: 8,
-    });
-    if (error) throw new Error(error.message);
-    return matches ?? [];
+
+    async function search(q: string): Promise<AskMatch[]> {
+      const v = await embedText(q);
+      const { data: matches, error } = await context.supabase.rpc("match_items", {
+        query_embedding: v as unknown as string,
+        match_count: 8,
+      });
+      if (error) throw new Error(error.message);
+      return (matches ?? []) as AskMatch[];
+    }
+
+    const matches = await search(data.q);
+    let answer = await answerFromMatches(data.q, matches);
+
+    const promoLike = /\b(promo|promotion|coupon|discount|offer|sale|deal|gift\s*card)\b/i.test(data.q);
+    let scanned = false;
+    let matchesUsed = matches;
+
+    if (answer === "NO_MATCH" && promoLike) {
+      try {
+        const { gmailSearch, gmailGetMessage, gmailExtractBody } = await import("@/lib/agent/tools.server");
+        const { runAgent, emptyState } = await import("@/lib/agent/runtime.server");
+        const q = `newer_than:30d in:inbox (coupon OR promo OR sale OR discount OR offer OR "gift card")`;
+        const list = await gmailSearch(q, 25);
+        const ids = (list.messages ?? []).map((m) => m.id);
+        const { data: existing } = await context.supabase
+          .from("agent_runs")
+          .select("input_ref")
+          .eq("user_id", context.userId)
+          .eq("input_kind", "gmail")
+          .order("started_at", { ascending: false })
+          .limit(200);
+        const seen = new Set<string>();
+        for (const r of existing ?? []) {
+          const gid = (r.input_ref as { input?: { sourceRef?: { gmailId?: string } } })?.input?.sourceRef?.gmailId;
+          if (gid) seen.add(gid);
+        }
+        for (const id of ids) {
+          if (seen.has(id)) continue;
+          let text: string;
+          try {
+            const msg = await gmailGetMessage(id);
+            const headers = Object.fromEntries(msg.payload.headers.map((h) => [h.name.toLowerCase(), h.value]));
+            const body = gmailExtractBody(msg.payload) || msg.snippet || "";
+            text = `From: ${headers["from"] ?? ""}\nSubject: ${headers["subject"] ?? ""}\nDate: ${headers["date"] ?? ""}\n\n${body}`;
+          } catch {
+            continue;
+          }
+          const threadId = crypto.randomUUID();
+          const { data: run, error } = await context.supabase
+            .from("agent_runs")
+            .insert({
+              user_id: context.userId,
+              thread_id: threadId,
+              status: "running",
+              input_kind: "gmail",
+              input_ref: { input: { source: "gmail", text, imageUrl: null, sourceRef: { gmailId: id } }, state: {} },
+            })
+            .select("id")
+            .single();
+          if (error) continue;
+          const state = emptyState({ source: "gmail", text, imageUrl: null, sourceRef: { gmailId: id } });
+          try {
+            await runAgent({ supabase: context.supabase, userId: context.userId, runId: run.id, threadId, state });
+          } catch (e) {
+            await context.supabase
+              .from("agent_runs")
+              .update({ status: "failed", error: (e as Error).message, ended_at: new Date().toISOString() })
+              .eq("id", run.id);
+          }
+        }
+        scanned = true;
+      } catch {
+        // ignore scan failures; we'll still answer NO_MATCH
+      }
+      const fresh = await search(data.q);
+      matchesUsed = fresh;
+      answer = await answerFromMatches(data.q, fresh);
+    }
+
+    if (answer === "NO_MATCH") {
+      answer = scanned
+        ? "I couldn't find that — I also checked your recent Gmail and nothing matched."
+        : "I couldn't find anything about that in your saved items.";
+    }
+
+    const sources = matchesUsed.filter((m) => m.similarity >= 0.3).slice(0, 3);
+    return { answer, sources, scanned };
   });
 
 export const listAssignmentRules = createServerFn({ method: "GET" })
