@@ -122,8 +122,9 @@ export function PageShell({ title, action, children }: { title: string; action?:
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-3">
           <h1 className="font-serif text-2xl text-foreground truncate">{title}</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {action}
+            <NotificationBell />
             <AccountBadge />
           </div>
         </div>
