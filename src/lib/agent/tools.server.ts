@@ -209,6 +209,20 @@ export function gmailExtractBody(payload: GmailPayload): string {
 }
 
 // ---------- Calendar ----------
+// Google Calendar rejects `dateTime` values without a timezone offset, and
+// rejects `dateTime` entirely for date-only values (must use `date`). Normalize.
+function toCalendarTime(iso: string): { date: string } | { dateTime: string; timeZone: string } {
+  // Date-only: "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { date: iso };
+  // Has timezone offset or trailing Z → safe as dateTime
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)) {
+    return { dateTime: iso, timeZone: "UTC" };
+  }
+  // Naive datetime "YYYY-MM-DDTHH:mm[:ss]" → attach UTC explicitly
+  const withSeconds = /T\d{2}:\d{2}:\d{2}/.test(iso) ? iso : `${iso}:00`;
+  return { dateTime: `${withSeconds}Z`, timeZone: "UTC" };
+}
+
 export async function calendarCreateEvent(input: {
   summary: string;
   description: string;
@@ -222,8 +236,8 @@ export async function calendarCreateEvent(input: {
     body: JSON.stringify({
       summary: input.summary,
       description: input.description,
-      start: { dateTime: input.startISO },
-      end: { dateTime: input.endISO },
+      start: toCalendarTime(input.startISO),
+      end: toCalendarTime(input.endISO),
     }),
   });
   if (!res.ok) throw new ToolError(`calendar create ${res.status} ${await res.text()}`, "calendarCreateEvent");
@@ -241,8 +255,8 @@ export async function calendarPatchEvent(eventId: string, patch: {
   const body: Record<string, unknown> = {};
   if (patch.summary !== undefined) body.summary = patch.summary;
   if (patch.description !== undefined) body.description = patch.description;
-  if (patch.startISO) body.start = { dateTime: patch.startISO };
-  if (patch.endISO) body.end = { dateTime: patch.endISO };
+  if (patch.startISO) body.start = toCalendarTime(patch.startISO);
+  if (patch.endISO) body.end = toCalendarTime(patch.endISO);
   if (patch.status) body.status = patch.status;
   const res = await fetch(url, {
     method: "PATCH",
@@ -252,6 +266,7 @@ export async function calendarPatchEvent(eventId: string, patch: {
   if (!res.ok) throw new ToolError(`calendar patch ${res.status} ${await res.text()}`, "calendarPatchEvent");
   return (await res.json()) as { id: string; htmlLink?: string };
 }
+
 
 export async function calendarDeleteEvent(eventId: string) {
   const url = `${GATEWAY}/google_calendar/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
