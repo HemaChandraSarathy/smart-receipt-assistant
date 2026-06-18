@@ -407,6 +407,39 @@ export const listGoogleCalendarEvents = createServerFn({ method: "GET" })
     };
   });
 
+// ---- delete an event from the connected Google Calendar (primary) ----
+export const deleteGoogleCalendarEvent = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ eventId: z.string().min(1) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const lovableKey = process.env.LOVABLE_API_KEY;
+    const connKey = process.env.GOOGLE_CALENDAR_API_KEY;
+    if (!lovableKey || !connKey) {
+      throw new Error("Google Calendar is not connected.");
+    }
+    const url = `https://connector-gateway.lovable.dev/google_calendar/calendar/v3/calendars/primary/events/${encodeURIComponent(data.eventId)}`;
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "X-Connection-Api-Key": connKey,
+      },
+    });
+    // 410 = already gone, 404 = not found — treat as success
+    if (!res.ok && res.status !== 410 && res.status !== 404) {
+      const body = await res.text();
+      throw new Error(`Calendar delete failed (${res.status}): ${body.slice(0, 200)}`);
+    }
+    // Clear the linked item reference so the app stops pointing at a dead event
+    await context.supabase
+      .from("items")
+      .update({ calendar_event_id: null })
+      .eq("user_id", context.userId)
+      .eq("calendar_event_id", data.eventId);
+    return { ok: true as const };
+  });
+
+
 export const askMemory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ q: z.string().min(1).max(500) }).parse(d))
