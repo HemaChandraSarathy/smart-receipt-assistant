@@ -241,7 +241,7 @@ export function buildGraph(
       return {};
     }
     try {
-      const merged = { ...proposal, ...(decision.patch ?? {}) };
+      const merged = { ...proposal, ...(decision?.patch ?? {}) };
       const ev = await withRetry(deps, "approveCalendar", () =>
         calendarCreateEvent({
           summary: merged.summary,
