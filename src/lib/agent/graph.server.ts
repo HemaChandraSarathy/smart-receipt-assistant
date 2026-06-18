@@ -238,6 +238,9 @@ export function buildGraph(
         })
       );
       await deps.recordEvent("approveCalendar", "tool", { eventId: ev.id, link: ev.htmlLink });
+      if (s.itemId) {
+        await deps.supabase.from("items").update({ calendar_event_id: ev.id }).eq("id", s.itemId);
+      }
       return { calendarEventId: ev.id };
     } catch (e) {
       await deps.recordEvent("approveCalendar", "error", { error: (e as Error).message });
