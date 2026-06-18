@@ -177,7 +177,7 @@ export const runGoldenEval = createServerFn({ method: "POST" })
       matchedAnyExpectedTitle: matchedAny,
       hasRawText: !!actual?.raw_text,
       hasSourceQuote: !!actual?.source_quote,
-      actual,
+      actualJson: actual ? JSON.stringify(actual, null, 2) : null,
     };
 
     await supabase
@@ -185,5 +185,5 @@ export const runGoldenEval = createServerFn({ method: "POST" })
       .update({ last_eval: evalResult as never, last_eval_at: new Date().toISOString() })
       .eq("id", data.id);
 
-    return JSON.parse(JSON.stringify(evalResult)) as typeof evalResult;
+    return evalResult;
   });
