@@ -134,10 +134,25 @@ export function buildGraph(
       }
     };
     try {
+      // Fetch up to 2 most recent golden examples to few-shot the extractor
+      const { data: goldens } = await deps.supabase
+        .from("golden_examples")
+        .select("title, notes, expected_items")
+        .eq("user_id", deps.userId)
+        .order("created_at", { ascending: false })
+        .limit(2);
+      const examples = (goldens ?? []).map((g) => ({
+        title: g.title as string,
+        notes: (g.notes as string | null) ?? null,
+        expected_items: Array.isArray(g.expected_items) ? (g.expected_items as unknown[]) : [],
+      }));
       const extracted = await withRetry(deps, "extract", () =>
-        visionExtract({ imageUrl: s.input.imageUrl ?? undefined, text: s.input.text ?? undefined })
+        visionExtract(
+          { imageUrl: s.input.imageUrl ?? undefined, text: s.input.text ?? undefined },
+          examples,
+        ),
       );
-      await deps.recordEvent("extract", "end", { extracted });
+      await deps.recordEvent("extract", "end", { extracted, fewShotCount: examples.length });
       await purgeImage();
       return { extracted };
     } catch (e) {

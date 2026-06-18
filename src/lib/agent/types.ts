@@ -17,6 +17,20 @@ export interface ExtractedItem {
   expires_at: string | null;
   rsvp_by: string | null;
   raw_text: string | null;
+  // Set when the document only partially specifies a date (e.g. "Friday", "next month").
+  // The extractor MUST NOT invent a year — set due_at: null and put the literal phrase here.
+  due_at_hint?: string | null;
+  // Verbatim phrase from the document that justifies the extraction.
+  source_quote?: string | null;
+  // False when the date had to be inferred or is unknown.
+  date_known?: boolean;
+}
+
+// A golden example used to few-shot the extractor.
+export interface GoldenExampleForPrompt {
+  title: string;
+  notes: string | null;
+  expected_items: Partial<ExtractedItem>[];
 }
 
 export interface AssignmentProposal {

@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRunsRouteImport } from './routes/_authenticated/runs'
 import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
+import { Route as AuthenticatedGoldenRouteImport } from './routes/_authenticated/golden'
 import { Route as AuthenticatedCaptureRouteImport } from './routes/_authenticated/capture'
 import { Route as AuthenticatedCalendarRouteImport } from './routes/_authenticated/calendar'
 import { Route as AuthenticatedAskRouteImport } from './routes/_authenticated/ask'
@@ -43,6 +44,11 @@ const AuthenticatedRunsRoute = AuthenticatedRunsRouteImport.update({
 const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedGoldenRoute = AuthenticatedGoldenRouteImport.update({
+  id: '/golden',
+  path: '/golden',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedCaptureRoute = AuthenticatedCaptureRouteImport.update({
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/ask': typeof AuthenticatedAskRoute
   '/calendar': typeof AuthenticatedCalendarRoute
   '/capture': typeof AuthenticatedCaptureRoute
+  '/golden': typeof AuthenticatedGoldenRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/ask': typeof AuthenticatedAskRoute
   '/calendar': typeof AuthenticatedCalendarRoute
   '/capture': typeof AuthenticatedCaptureRoute
+  '/golden': typeof AuthenticatedGoldenRoute
   '/inbox': typeof AuthenticatedInboxRoute
   '/runs': typeof AuthenticatedRunsRouteWithChildren
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/_authenticated/ask': typeof AuthenticatedAskRoute
   '/_authenticated/calendar': typeof AuthenticatedCalendarRoute
   '/_authenticated/capture': typeof AuthenticatedCaptureRoute
+  '/_authenticated/golden': typeof AuthenticatedGoldenRoute
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
   '/_authenticated/runs': typeof AuthenticatedRunsRouteWithChildren
   '/_authenticated/runs/$runId': typeof AuthenticatedRunsRunIdRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/ask'
     | '/calendar'
     | '/capture'
+    | '/golden'
     | '/inbox'
     | '/runs'
     | '/runs/$runId'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/ask'
     | '/calendar'
     | '/capture'
+    | '/golden'
     | '/inbox'
     | '/runs'
     | '/runs/$runId'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ask'
     | '/_authenticated/calendar'
     | '/_authenticated/capture'
+    | '/_authenticated/golden'
     | '/_authenticated/inbox'
     | '/_authenticated/runs'
     | '/_authenticated/runs/$runId'
@@ -197,6 +209,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof AuthenticatedInboxRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/golden': {
+      id: '/_authenticated/golden'
+      path: '/golden'
+      fullPath: '/golden'
+      preLoaderRoute: typeof AuthenticatedGoldenRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/capture': {
@@ -260,6 +279,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAskRoute: typeof AuthenticatedAskRoute
   AuthenticatedCalendarRoute: typeof AuthenticatedCalendarRoute
   AuthenticatedCaptureRoute: typeof AuthenticatedCaptureRoute
+  AuthenticatedGoldenRoute: typeof AuthenticatedGoldenRoute
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
   AuthenticatedRunsRoute: typeof AuthenticatedRunsRouteWithChildren
 }
@@ -269,6 +289,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAskRoute: AuthenticatedAskRoute,
   AuthenticatedCalendarRoute: AuthenticatedCalendarRoute,
   AuthenticatedCaptureRoute: AuthenticatedCaptureRoute,
+  AuthenticatedGoldenRoute: AuthenticatedGoldenRoute,
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
   AuthenticatedRunsRoute: AuthenticatedRunsRouteWithChildren,
 }
@@ -285,13 +306,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

@@ -1,69 +1,101 @@
-# Navigation + Approve refresh
+# Golden dataset for the extractor
 
-## 1. Bottom bar: 4 tabs + center ＋ FAB
+A small, growing library of "this is what a human would have extracted" examples. We store the source image + the ideal multi-task output + notes about what's tricky. Two payoffs:
 
-In `src/components/app-shell.tsx`, restructure the bottom bar:
+1. **Few-shot the live extractor** — inject 1–2 most-relevant examples into the vision prompt so it stops collapsing multi-task documents into one item and stops hallucinating dates.
+2. **Eval harness** — re-run the current extractor against every golden example on demand and see a pass/fail diff.
 
-```text
-[ Inbox ]  [ Approve ]  ( ＋ )  [ Ask ]  [ Runs ]
-                          ↑
-                  Capture (raised circular FAB)
+You add new examples from the app; no code change needed each time.
+
+## What ships in v1
+
+### 1. Database (migration)
+
+New table `golden_examples`:
+
+| column | type | notes |
+|---|---|---|
+| `id` | uuid pk | |
+| `user_id` | uuid | who added it |
+| `title` | text | "Main Street Theater flyer" |
+| `image_url` | text | stored permanently in `golden/` storage bucket (never auto-deleted) |
+| `source_text` | text | optional verbatim transcript |
+| `notes` | text | "no date on doc, only 'Friday'; multi-task" |
+| `expected_items` | jsonb | array of ideal items (see shape below) |
+| `expected_clarifications` | jsonb | array of `{ question, options? }` the agent should have asked |
+| `failure_tags` | text[] | e.g. `['hallucinated_date','missed_multi_task','dropped_context']` |
+| `created_at` | timestamptz | |
+
+`expected_items[]` shape (mirrors `ExtractedItem` + a `source_quote` per field and an explicit `date_known` flag):
+
+```json
+{
+  "title": "Pay $5 for Friday pizza lunch",
+  "category": "bill",
+  "amount": 5,
+  "due_at": null,
+  "due_at_hint": "Thursday",
+  "date_known": false,
+  "description": "Pepperoni/cheese & cheese only; 2 slices, 3 if extras.",
+  "source_quote": "bring $5 by Thursday"
+}
 ```
 
-- Remove Calendar and Wins from `tabs[]`.
-- Render 4 flat tabs with a center slot occupied by a raised circular button: ~56px, primary color, white `Plus` icon, soft shadow, sits ~12px above the bar baseline, links to `/capture`.
-- Active state for the FAB when route === `/capture` (slightly larger ring / filled).
-- Keep existing icons/labels for the 4 flat tabs.
+RLS: owner-only read/write. GRANT to `authenticated` + `service_role`.
 
-## 2. Calendar → top-right header icon
+New storage bucket `golden` (private, signed URLs for viewing).
 
-In `PageShell` header (same file), add a `CalendarDays` icon button (Link to `/calendar`) immediately left of `NotificationBell`. No badge. `/calendar` route stays as-is.
+### 2. Seed the Main Street Theater case
 
-## 3. Wins folded into Inbox as a "Done" tab
+Migration inserts one row with:
+- Image uploaded to `golden/main-street-theater.jpg` (re-uploaded from `user-uploads://image.jpg`)
+- `expected_items` covering 4 tasks: pizza $5/Thu, performance Fri (date unknown — needs group), label props/costumes (Thu reminder), video link FYI (no action)
+- `expected_clarifications`: `[{question:"Which group is your child in?", options:["A (6-7) 3:30","B (8-10) 4:30","SSC (11-14) 5:30"]}, {question:"What's the date of this Friday?"}]`
+- `failure_tags`: `['hallucinated_date','missed_multi_task','dropped_context','missed_clarification']`
 
-In `src/routes/_authenticated/inbox.tsx`:
+### 3. Admin UI — `/golden`
 
-- Add a status switcher row above the existing category chips:
-  `[ Open ] [ Done ] [ Cancelled ]` (segmented control style).
-- **Open**: current behavior (existing filters and cards).
-- **Done**: fetches via existing `listWins` server fn; renders week groupings + a compact stat strip (this-week count, on-time %, total paid) reusing the visuals from `/wins`.
-- **Cancelled**: items with `status = 'cancelled'`, read-only cards.
-- Category chips continue to filter within the active status tab.
-- Delete `src/routes/_authenticated/wins.tsx` and remove the Wins entry from anywhere it's still referenced (nav, avatar menu).
+Authenticated route. Two screens:
 
-## 4. Approve: editable fields + notes textarea
+- **List**: cards with thumbnail, title, # expected items, failure tags, last eval result.
+- **New / Edit**: upload image, title, notes, JSON editor (Monaco-lite via `<Textarea>` for now) for `expected_items` and `expected_clarifications`, failure tag chips.
+- **Run eval** button on each row: calls the current extractor against the stored image, then renders a side-by-side diff (expected vs actual: item count, missing titles, hallucinated date Y/N).
 
-In `src/routes/_authenticated/approvals.tsx`:
+Nav: add a small "Golden" link in the header (only visible to signed-in users — no role gate v1; we can add admin role later).
 
-- Replace the "Edit" toggle with always-visible field editors on `save_item` and `create_calendar_event` cards:
-  - Title (input)
-  - Amount (input, where relevant)
-  - Due date / event time (date+time input)
-  - Assignee (input)
-- Add a **"Notes for the calendar event"** `<Textarea>` below the fields. Its value flows into `patch.description` (and `patch.note` for save_item).
-- Buttons: single primary **"Approve & save to calendar"** (sends `decision.action: "edit"` with `patch`), plus **"Skip"**.
-- Server: `resumeRun` already merges `decision.patch`. Ensure `graph.server.ts` / `tools.server.ts` pass `description` into the Google Calendar event body so the note actually lands on the event.
+### 4. Few-shot injection in `visionExtract`
 
-## 5. Feedback row (your question)
+`src/lib/agent/tools.server.ts` → before calling Gemini, fetch up to 2 golden examples from the same user (most recent first; later swap to embedding similarity) and prepend them as user/assistant turns showing input → expected JSON. Existing `EXTRACTOR_SYSTEM` prompt gets a new line: *"A document may contain multiple tasks — return one item per actionable task. If a date is partially specified (e.g. only a weekday), set `due_at: null` and put the literal phrase in `due_at_hint`. Never invent a year."*
 
-The Done / Reschedule / Cancel buttons already render as `ItemActions` on every Inbox card — that is the feedback surface we discussed. After this change:
-- Visible on **Open** cards (full actions).
-- Hidden on **Done** cards (already complete).
-- Shown read-only on **Cancelled** cards (no actions, just status).
+Also: make `visionExtract` return `ExtractedItem[]` instead of a single item. Graph (`graph.server.ts`) loops and creates one approval per item. This is the structural change the previous reply called out.
 
-If you also want the same Done/Reschedule/Cancel row on Approvals cards, say so and I'll add it.
+### 5. Eval server function
 
-## Files touched
+`runGoldenEval(exampleId)` → re-runs `visionExtract` on the stored image, returns `{ expectedCount, actualCount, missingTitles, hallucinatedDate, extraItems, rawActual }`. Stored on the row as `last_eval` jsonb + `last_eval_at`.
 
-- `src/components/app-shell.tsx` — 4 tabs + center FAB, Calendar header icon, remove Wins.
-- `src/routes/_authenticated/inbox.tsx` — Open/Done/Cancelled status switcher, fold Wins view in.
-- `src/routes/_authenticated/approvals.tsx` — always-editable fields + Notes textarea, single approve button.
-- `src/server/graph.server.ts` and/or `src/lib/tools.server.ts` — pass note into Calendar event description.
-- Delete `src/routes/_authenticated/wins.tsx`.
+## Out of scope for v1 (call out, don't build)
 
-## Out of scope
+- Embedding-based example selection (we'll use recency first; trivial swap later).
+- Automated regression CI run.
+- A clarifying-question node in the agent graph — captured in the golden expectations so we can build it next, against a real target.
 
-- No page redesigns beyond the above.
-- No badge counts on the new Calendar header icon.
-- No DB schema changes (`status = 'cancelled'` and wins data already exist).
-- `/calendar`, `/runs` routes keep working unchanged; only their entry points move.
+## Technical details
+
+- New files:
+  - `supabase/migrations/<ts>_golden_examples.sql` — table, RLS, GRANTs, storage bucket, seed insert.
+  - `src/lib/golden.functions.ts` — `listGolden`, `upsertGolden`, `deleteGolden`, `runGoldenEval`, `uploadGoldenImage` (all `requireSupabaseAuth`).
+  - `src/routes/_authenticated/golden.tsx` — list + new/edit dialog + eval results.
+- Edited files:
+  - `src/lib/agent/tools.server.ts` — multi-item return + few-shot injection + stricter prompt + new `due_at_hint` / `date_known` / `source_quote` fields on `extractedSchema`.
+  - `src/lib/agent/types.ts` — extend `ExtractedItem` with the new optional fields; export `ExtractedItem[]` from extract step.
+  - `src/lib/agent/graph.server.ts` — extract returns array; loop produces one approval per item; preserve `parent_run_id` link.
+  - `src/components/app-shell.tsx` — add "Golden" link in the header menu.
+- Seed image: re-upload `user-uploads://image.jpg` to `golden/main-street-theater.jpg` via `supabase--storage_upload` after the migration runs.
+
+## Verification
+
+1. Migration applies; `golden_examples` has 1 seeded row.
+2. `/golden` lists the seeded row with thumbnail.
+3. Click **Run eval** → result shows current extractor still collapses to 1 item and hallucinates a 2024 date (proves the gap).
+4. Re-capture the same flyer via `/capture` → the new multi-item extractor returns ≥3 items, no fabricated year, and queues 3 approvals.
+5. Add a second golden example via the UI; confirm it persists and re-runs eval cleanly.

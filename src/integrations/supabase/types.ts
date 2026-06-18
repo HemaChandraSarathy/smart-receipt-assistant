@@ -251,6 +251,54 @@ export type Database = {
           },
         ]
       }
+      golden_examples: {
+        Row: {
+          created_at: string
+          expected_clarifications: Json
+          expected_items: Json
+          failure_tags: string[]
+          id: string
+          image_path: string | null
+          last_eval: Json | null
+          last_eval_at: string | null
+          notes: string | null
+          source_text: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expected_clarifications?: Json
+          expected_items?: Json
+          failure_tags?: string[]
+          id?: string
+          image_path?: string | null
+          last_eval?: Json | null
+          last_eval_at?: string | null
+          notes?: string | null
+          source_text?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expected_clarifications?: Json
+          expected_items?: Json
+          failure_tags?: string[]
+          id?: string
+          image_path?: string | null
+          last_eval?: Json | null
+          last_eval_at?: string | null
+          notes?: string | null
+          source_text?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       items: {
         Row: {
           amount: number | null
