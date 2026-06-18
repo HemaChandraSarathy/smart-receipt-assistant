@@ -193,7 +193,14 @@ function ApprovalCard({ approval }: { approval: Approval }) {
           Assigned via: {assignment.reasoning} ({Math.round(assignment.confidence * 100)}%)
         </p>
 
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-4 items-center">
+          <DeleteButton
+            id={approval.id}
+            label="this approval"
+            deleteFn={softDeleteApproval}
+            confirmTitle="Delete this approval?"
+            confirmBody="Removes this pending approval entirely. Different from Skip — this is permanent (Trash holds it 30 days)."
+          />
           <Button
             variant="outline"
             size="sm"
@@ -207,6 +214,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
             disabled={decide.isPending}
           >{decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve & save to calendar</Button>
         </div>
+
       </Card>
     );
   }
