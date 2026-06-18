@@ -68,9 +68,10 @@ export function DeleteButton({
     onSuccess: () => {
       invalidate();
       toast(`${label} deleted`, {
-        description: restore ? "30 days in Trash before purge." : undefined,
-        action: restore
+        description: canRestore ? "30 days in Trash before purge." : undefined,
+        action: canRestore
           ? {
+
               label: "Undo",
               onClick: async () => {
                 try {
