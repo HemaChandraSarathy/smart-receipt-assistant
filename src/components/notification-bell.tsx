@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 
@@ -10,7 +10,12 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { listNotifications, markNotificationRead } from "@/lib/agent.functions";
+import {
+  listNotifications,
+  markNotificationRead,
+  softDeleteNotification,
+  clearReadNotifications,
+} from "@/lib/agent.functions";
 
 type Notif = {
   id: string;
@@ -26,6 +31,8 @@ export function NotificationBell() {
   const qc = useQueryClient();
   const listFn = useServerFn(listNotifications);
   const markFn = useServerFn(markNotificationRead);
+  const delFn = useServerFn(softDeleteNotification);
+  const clearReadFn = useServerFn(clearReadNotifications);
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -34,13 +41,24 @@ export function NotificationBell() {
     refetchInterval: 30_000,
   });
 
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["notifications"] });
+
   const markAll = useMutation({
     mutationFn: () => markFn({ data: { all: true } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+    onSuccess: invalidate,
+  });
+  const clearRead = useMutation({
+    mutationFn: () => clearReadFn(),
+    onSuccess: invalidate,
+  });
+  const delOne = useMutation({
+    mutationFn: (id: string) => delFn({ data: { id } }),
+    onSuccess: invalidate,
   });
 
   const list = data ?? [];
   const unread = list.filter((n) => !n.read_at).length;
+  const hasRead = list.some((n) => n.read_at);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -55,17 +73,28 @@ export function NotificationBell() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 max-h-[70vh] overflow-y-auto p-0">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-popover">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-popover gap-2">
           <span className="text-sm font-medium">Reminders</span>
-          {unread > 0 && (
-            <button
-              type="button"
-              className="text-xs text-primary hover:underline"
-              onClick={() => markAll.mutate()}
-            >
-              Mark all read
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {unread > 0 && (
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => markAll.mutate()}
+              >
+                Mark all read
+              </button>
+            )}
+            {hasRead && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:underline"
+                onClick={() => clearRead.mutate()}
+              >
+                Clear read
+              </button>
+            )}
+          </div>
         </div>
         {list.length === 0 ? (
           <p className="px-3 py-6 text-xs text-center text-muted-foreground">
@@ -76,13 +105,21 @@ export function NotificationBell() {
             {list.map((n) => (
               <li
                 key={n.id}
-                className={`px-3 py-2 ${!n.read_at ? "bg-accent/30" : ""}`}
+                className={`px-3 py-2 group ${!n.read_at ? "bg-accent/30" : ""}`}
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium leading-tight">{n.title}</p>
+                  <p className="text-sm font-medium leading-tight flex-1">{n.title}</p>
                   <span className="text-[10px] text-muted-foreground shrink-0">
                     {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
                   </span>
+                  <button
+                    type="button"
+                    aria-label="Delete notification"
+                    className="text-muted-foreground hover:text-destructive opacity-60 hover:opacity-100"
+                    onClick={() => delOne.mutate(n.id)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 {n.body && <p className="text-xs text-muted-foreground mt-0.5">{n.body}</p>}
               </li>
