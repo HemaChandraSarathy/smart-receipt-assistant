@@ -79,9 +79,9 @@ function AuthPage() {
     <main className="min-h-screen flex items-center justify-center px-4 bg-background">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="font-serif text-5xl text-foreground">Inbox</h1>
+          <h1 className="font-serif text-5xl text-foreground">Unburden</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Your household paper trail, handled.
+            Your mental inbox — offload, plan, execute.
           </p>
         </div>
         <Button onClick={onGoogle} disabled={busy} variant="outline" className="w-full mb-6">
