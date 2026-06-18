@@ -86,7 +86,7 @@ function CapturePage() {
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="e.g. Ravi's soccer registration, due Friday. Pay from joint account."
+          placeholder="e.g. Soccer registration for my kid, due Friday. Pay from joint account."
           disabled={uploading}
           className="mb-3"
         />
