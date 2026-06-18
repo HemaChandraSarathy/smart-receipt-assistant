@@ -195,6 +195,70 @@ export const listItems = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+// ---- calendar view: items with a date, joined with calendar event + followup status ----
+export const listCalendarItems = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { data: items, error } = await supabase
+      .from("items")
+      .select("id, run_id, title, category, assignee, merchant, amount, currency, due_at, expires_at, rsvp_by")
+      .eq("archived", false)
+      .or("due_at.not.is.null,expires_at.not.is.null,rsvp_by.not.is.null")
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    const list = items ?? [];
+    const itemIds = list.map((i) => i.id);
+    const runIds = Array.from(new Set(list.map((i) => i.run_id).filter(Boolean))) as string[];
+
+    const [{ data: followups }, { data: calEvents }, { data: approvals }] = await Promise.all([
+      itemIds.length
+        ? supabase.from("followups").select("item_id, next_nudge_at, state").in("item_id", itemIds)
+        : Promise.resolve({ data: [] as Array<{ item_id: string; next_nudge_at: string; state: string }> }),
+      runIds.length
+        ? supabase
+            .from("agent_events")
+            .select("run_id, payload, kind, node")
+            .in("run_id", runIds)
+            .eq("node", "approveCalendar")
+            .eq("kind", "tool")
+        : Promise.resolve({ data: [] as Array<{ run_id: string; payload: Record<string, unknown> }> }),
+      runIds.length
+        ? supabase
+            .from("approvals")
+            .select("run_id, status, action_kind")
+            .in("run_id", runIds)
+            .eq("action_kind", "create_calendar_event")
+        : Promise.resolve({ data: [] as Array<{ run_id: string; status: string }> }),
+    ]);
+
+    const followupByItem = new Map(
+      (followups ?? []).map((f) => [f.item_id, { at: f.next_nudge_at, state: f.state }])
+    );
+    const eventByRun = new Map(
+      (calEvents ?? []).map((e) => [
+        e.run_id,
+        {
+          eventId: (e.payload as { eventId?: string })?.eventId ?? null,
+          link: (e.payload as { link?: string })?.link ?? null,
+        },
+      ])
+    );
+    const approvalByRun = new Map(
+      (approvals ?? []).map((a) => [a.run_id, a.status])
+    );
+
+    return list.map((i) => ({
+      ...i,
+      calendar: i.run_id
+        ? eventByRun.get(i.run_id) ?? { eventId: null, link: null }
+        : { eventId: null, link: null },
+      calendarApprovalStatus: i.run_id ? approvalByRun.get(i.run_id) ?? null : null,
+      followup: followupByItem.get(i.id) ?? null,
+    }));
+  });
+
 export const askMemory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ q: z.string().min(1).max(500) }).parse(d))
