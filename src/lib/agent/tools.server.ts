@@ -144,6 +144,13 @@ export async function gmailSearch(q: string, maxResults = 20) {
   return (await res.json()) as { messages?: { id: string; threadId: string }[] };
 }
 
+type GmailPayload = {
+  headers: { name: string; value: string }[];
+  mimeType?: string;
+  body?: { data?: string; size?: number };
+  parts?: GmailPayload[];
+};
+
 export async function gmailGetMessage(id: string) {
   const url = `${GATEWAY}/google_mail/gmail/v1/users/me/messages/${id}?format=full`;
   const res = await fetch(url, { headers: gatewayHeaders("GOOGLE_MAIL_API_KEY") });
@@ -151,8 +158,43 @@ export async function gmailGetMessage(id: string) {
   return (await res.json()) as {
     id: string;
     snippet: string;
-    payload: { headers: { name: string; value: string }[]; parts?: unknown; body?: { data?: string } };
+    payload: GmailPayload;
   };
+}
+
+// Decode base64url body and walk multipart trees to extract readable text.
+export function gmailExtractBody(payload: GmailPayload): string {
+  const decode = (data?: string) => {
+    if (!data) return "";
+    try {
+      const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
+      return typeof Buffer !== "undefined"
+        ? Buffer.from(b64, "base64").toString("utf-8")
+        : atob(b64);
+    } catch {
+      return "";
+    }
+  };
+  const stripHtml = (s: string) =>
+    s.replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s+/g, " ")
+      .trim();
+  const walk = (p: GmailPayload, out: { plain: string[]; html: string[] }) => {
+    if (p.mimeType === "text/plain" && p.body?.data) out.plain.push(decode(p.body.data));
+    else if (p.mimeType === "text/html" && p.body?.data) out.html.push(stripHtml(decode(p.body.data)));
+    else if (p.body?.data && !p.parts) out.plain.push(decode(p.body.data));
+    for (const c of p.parts ?? []) walk(c, out);
+  };
+  const out = { plain: [] as string[], html: [] as string[] };
+  walk(payload, out);
+  const text = out.plain.join("\n").trim() || out.html.join("\n").trim();
+  return text.slice(0, 8000);
 }
 
 // ---------- Calendar ----------
