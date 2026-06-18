@@ -119,15 +119,30 @@ export function buildGraph(
 
   g.addNode("extract", async (s: S) => {
     if (s.extracted) return {};
-    await deps.recordEvent("extract", "start", {});
+    await deps.recordEvent("extract", "start", {
+      model: "google/gemini-2.5-flash",
+      hasImage: !!s.input.imageUrl,
+    });
+    const storagePath = (s.input.sourceRef as { storagePath?: string } | undefined)?.storagePath;
+    const purgeImage = async () => {
+      if (!storagePath) return;
+      try {
+        await deps.supabase.storage.from("receipts").remove([storagePath]);
+        await deps.recordEvent("extract", "tool", { deletedImage: storagePath });
+      } catch (err) {
+        await deps.recordEvent("extract", "error", { deleteImage: (err as Error).message });
+      }
+    };
     try {
       const extracted = await withRetry(deps, "extract", () =>
         visionExtract({ imageUrl: s.input.imageUrl ?? undefined, text: s.input.text ?? undefined })
       );
       await deps.recordEvent("extract", "end", { extracted });
+      await purgeImage();
       return { extracted };
     } catch (e) {
       await deps.recordEvent("extract", "error", { error: (e as Error).message });
+      await purgeImage();
       return { errors: [{ node: "extract", message: (e as Error).message }] };
     }
   });
