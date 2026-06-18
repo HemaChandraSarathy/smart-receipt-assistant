@@ -76,17 +76,42 @@ export const startRunFromText = createServerFn({ method: "POST" })
   });
 
 // ---- scan Gmail for the last 30 days, fan out a run per matching message ----
+export const getGmailScanState = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { data } = await supabase
+      .from("gmail_scan_state")
+      .select("last_scanned_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    return { lastScannedAt: (data?.last_scanned_at as string | undefined) ?? null };
+  });
+
 export const scanGmailRecent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
     const { gmailSearch, gmailGetMessage, gmailExtractBody } = await import("@/lib/agent/tools.server");
     const { runAgent, emptyState } = await import("@/lib/agent/runtime.server");
-    // Broader query: anything in the inbox from the last 30 days that looks like a
-    // bill / coupon / promo / invite / receipt / RSVP / school / kids activity / order / payment.
-    // We don't try to be clever — we cast wide and let the extractor decide.
+
+    // Look up the last scan time. If we've scanned before, only fetch messages
+    // received after that timestamp so we don't redo work. First scan falls
+    // back to the last 30 days.
+    const { data: prevState } = await supabase
+      .from("gmail_scan_state")
+      .select("last_scanned_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const lastScannedAt = prevState?.last_scanned_at as string | undefined;
+    const scanStartedAt = new Date();
+
+    const timeFilter = lastScannedAt
+      ? `after:${Math.floor(new Date(lastScannedAt).getTime() / 1000)}`
+      : "newer_than:30d";
+
     const q = [
-      "newer_than:30d",
+      timeFilter,
       "in:inbox",
       "-category:social",
       "-category:forums",
@@ -101,7 +126,7 @@ export const scanGmailRecent = createServerFn({ method: "POST" })
     const list = await gmailSearch(q, 50);
     const ids = (list.messages ?? []).map((m) => m.id);
     const runIds: string[] = [];
-    // Skip messages we've already processed in a prior scan to avoid duplicates.
+    // Belt-and-suspenders dedupe: still skip any gmailId we've already processed.
     const { data: existing } = await supabase
       .from("agent_runs")
       .select("input_ref")
@@ -142,7 +167,6 @@ export const scanGmailRecent = createServerFn({ method: "POST" })
       if (error) continue;
       runIds.push(run.id);
       const state = emptyState({ source: "gmail", text, imageUrl: null, sourceRef: { gmailId: id } });
-      // Don't let one bad email kill the whole scan.
       try {
         await runAgent({ supabase, userId, runId: run.id, threadId, state });
       } catch (e) {
@@ -152,8 +176,24 @@ export const scanGmailRecent = createServerFn({ method: "POST" })
           .eq("id", run.id);
       }
     }
-    return { runIds, scanned: ids.length, skipped: ids.length - runIds.length };
+
+    // Record this scan so the next one picks up only new mail.
+    await supabase
+      .from("gmail_scan_state")
+      .upsert(
+        { user_id: userId, last_scanned_at: scanStartedAt.toISOString(), updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+
+    return {
+      runIds,
+      scanned: ids.length,
+      skipped: ids.length - runIds.length,
+      lastScannedAt: lastScannedAt ?? null,
+      scannedAt: scanStartedAt.toISOString(),
+    };
   });
+
 
 // ---- resume a run with a decision on its pending approval ----
 const ResumeInput = z.object({
