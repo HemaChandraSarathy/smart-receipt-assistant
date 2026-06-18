@@ -185,5 +185,5 @@ export const runGoldenEval = createServerFn({ method: "POST" })
       .update({ last_eval: evalResult as never, last_eval_at: new Date().toISOString() })
       .eq("id", data.id);
 
-    return evalResult;
+    return JSON.parse(JSON.stringify(evalResult)) as typeof evalResult;
   });
