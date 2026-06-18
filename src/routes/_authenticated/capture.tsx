@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Camera, Mail, Loader2 } from "lucide-react";
+import { Camera, Mail, Loader2, Upload } from "lucide-react";
 
 import { PageShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ function CapturePage() {
   const startTxt = useServerFn(startRunFromText);
   const scan = useServerFn(scanGmailRecent);
   const [text, setText] = useState("");
+  const [note, setNote] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const handleFile = async (file: File) => {
@@ -30,13 +31,18 @@ function CapturePage() {
     try {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("not signed in");
-      const path = `${userData.user.id}/${crypto.randomUUID()}-${file.name}`;
-      const { error: upErr } = await supabase.storage.from("receipts").upload(path, file, { upsert: false });
+      const safeName = (file.name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${userData.user.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error: upErr } = await supabase.storage.from("receipts").upload(path, file, {
+        upsert: false,
+        contentType: file.type || "image/jpeg",
+      });
       if (upErr) throw upErr;
       const { data: signed } = await supabase.storage.from("receipts").createSignedUrl(path, 60 * 60);
       if (!signed?.signedUrl) throw new Error("signing failed");
-      const res = await startImg({ data: { imageUrl: signed.signedUrl, storagePath: path } });
+      const res = await startImg({ data: { imageUrl: signed.signedUrl, storagePath: path, note: note || undefined } });
       toast.success(res.status === "awaiting_approval" ? "Ready for your approval" : "Processed");
+      setNote("");
       qc.invalidateQueries();
     } catch (e) {
       toast.error((e as Error).message);
@@ -67,32 +73,73 @@ function CapturePage() {
   return (
     <PageShell title="Capture">
       <Card className="p-5 mb-4">
-        <h2 className="font-serif text-lg mb-1">Snap a photo</h2>
+        <h2 className="font-serif text-lg mb-1">Snap or upload a photo</h2>
         <p className="text-sm text-muted-foreground mb-4">
           Bill, coupon, invite, receipt — anything on paper. The photo is deleted right after parsing; only the extracted details are kept.
         </p>
-        <label className="block">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-            }}
-          />
-          <span className="inline-flex w-full">
-            <Button asChild disabled={uploading} className="w-full">
-              <span>
-                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Camera className="h-4 w-4 mr-2" />}
-                {uploading ? "Processing…" : "Take or upload photo"}
-              </span>
-            </Button>
-          </span>
+
+        <label htmlFor="photo-note" className="text-sm font-medium block mb-1">
+          Add context for the agent <span className="text-muted-foreground font-normal">(optional)</span>
         </label>
+        <Textarea
+          id="photo-note"
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Ravi's soccer registration, due Friday. Pay from joint account."
+          disabled={uploading}
+          className="mb-3"
+        />
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) handleFile(f);
+              }}
+            />
+            <span className="inline-flex w-full">
+              <Button asChild disabled={uploading} className="w-full" variant="secondary">
+                <span>
+                  {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Camera className="h-4 w-4 mr-2" />}
+                  Take photo
+                </span>
+              </Button>
+            </span>
+          </label>
+
+          <label className="block">
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) handleFile(f);
+              }}
+            />
+            <span className="inline-flex w-full">
+              <Button asChild disabled={uploading} className="w-full">
+                <span>
+                  {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Upload photo
+                </span>
+              </Button>
+            </span>
+          </label>
+        </div>
+        {uploading && <p className="text-xs text-muted-foreground mt-2">Processing…</p>}
       </Card>
+
 
       <Card className="p-5 mb-4">
         <h2 className="font-serif text-lg mb-1">Scan Gmail</h2>
