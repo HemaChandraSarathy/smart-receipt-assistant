@@ -41,7 +41,7 @@ const nullableNum = z.unknown().optional().transform((v) => {
   return Number.isFinite(n) ? n : null;
 });
 const extractedSchema = z.object({
-  category: z.enum(["bill", "promo", "coupon", "invite", "receipt", "other"]).catch("other"),
+  category: z.enum(["bill", "promo", "invite", "repair", "return", "other"]).catch("other"),
   category_confidence: nullableNum.transform((v) => (v == null ? 0.5 : Math.max(0, Math.min(1, v)))),
   topic: nullableStr,
   merchant: nullableStr,
