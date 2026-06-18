@@ -119,15 +119,30 @@ export function buildGraph(
 
   g.addNode("extract", async (s: S) => {
     if (s.extracted) return {};
-    await deps.recordEvent("extract", "start", {});
+    await deps.recordEvent("extract", "start", {
+      model: "google/gemini-2.5-flash",
+      hasImage: !!s.input.imageUrl,
+    });
+    const storagePath = (s.input.sourceRef as { storagePath?: string } | undefined)?.storagePath;
+    const purgeImage = async () => {
+      if (!storagePath) return;
+      try {
+        await deps.supabase.storage.from("receipts").remove([storagePath]);
+        await deps.recordEvent("extract", "tool", { deletedImage: storagePath });
+      } catch (err) {
+        await deps.recordEvent("extract", "error", { deleteImage: (err as Error).message });
+      }
+    };
     try {
       const extracted = await withRetry(deps, "extract", () =>
         visionExtract({ imageUrl: s.input.imageUrl ?? undefined, text: s.input.text ?? undefined })
       );
       await deps.recordEvent("extract", "end", { extracted });
+      await purgeImage();
       return { extracted };
     } catch (e) {
       await deps.recordEvent("extract", "error", { error: (e as Error).message });
+      await purgeImage();
       return { errors: [{ node: "extract", message: (e as Error).message }] };
     }
   });
@@ -144,7 +159,11 @@ export function buildGraph(
     if (s.itemId) return {}; // already saved
     if (!s.extracted || !s.assignment) return {};
     const decision = s.decisions.approveSave;
-    if (!decision) {
+    const AUTO_APPROVE_THRESHOLD = 0.85;
+    const highConfidence =
+      (s.extracted.category_confidence ?? 0) >= AUTO_APPROVE_THRESHOLD &&
+      (s.assignment.confidence ?? 0) >= AUTO_APPROVE_THRESHOLD;
+    if (!decision && !highConfidence) {
       const proposal: ApprovalProposal = {
         kind: "save_item",
         item: s.extracted,
@@ -154,13 +173,13 @@ export function buildGraph(
       await deps.recordEvent("approveSave", "interrupt", { proposal });
       return { pendingApproval: "approveSave" };
     }
-    if (decision.action === "reject") {
+    if (decision?.action === "reject") {
       await deps.recordEvent("approveSave", "end", { decision, status: "rejected" });
       return {};
     }
-    const item = { ...s.extracted, ...(decision.patch ?? {}) } as ExtractedItem;
+    const item = { ...s.extracted, ...(decision?.patch ?? {}) } as ExtractedItem;
     const assignment: AssignmentProposal =
-      decision.patch?.assignee != null
+      decision?.patch?.assignee != null
         ? { ...s.assignment, assignee: decision.patch.assignee }
         : s.assignment;
     const itemId = await saveItem(
@@ -170,10 +189,14 @@ export function buildGraph(
       item,
       assignment,
       s.input.source,
-      s.input.imageUrl ?? null,
+      null, // image is purged after extract — never store URL
       s.input.sourceRef
     );
-    await deps.recordEvent("approveSave", "end", { decision, itemId });
+    await deps.recordEvent("approveSave", "end", {
+      decision: decision ?? { action: "auto-approve", reason: "high confidence" },
+      itemId,
+      auto: !decision,
+    });
     return { extracted: item, assignment, itemId };
   });
 
