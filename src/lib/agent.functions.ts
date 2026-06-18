@@ -158,6 +158,7 @@ export const listPendingApprovals = createServerFn({ method: "GET" })
       .from("approvals")
       .select("id, run_id, node, action_kind, proposal, created_at")
       .eq("status", "pending")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data ?? [];
@@ -169,6 +170,7 @@ export const listRecentRuns = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("agent_runs")
       .select("id, thread_id, status, input_kind, current_node, started_at, ended_at, error, langsmith_url")
+      .is("deleted_at", null)
       .order("started_at", { ascending: false })
       .limit(30);
     if (error) throw new Error(error.message);
@@ -194,10 +196,12 @@ export const listItems = createServerFn({ method: "GET" })
       .from("items")
       .select("*")
       .eq("archived", false)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw new Error(error.message);
     return data ?? [];
+
   });
 
 // ---- calendar view: items with a date, joined with calendar event + followup status ----
