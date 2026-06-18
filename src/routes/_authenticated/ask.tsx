@@ -55,17 +55,30 @@ function AskPage() {
         <p className="text-sm text-muted-foreground">No matches.</p>
       )}
       <div className="space-y-2">
-        {m.data?.map((r) => (
-          <Card key={r.id} className="p-4">
-            <div className="flex items-baseline justify-between">
-              <h3 className="font-serif text-base">{r.title}</h3>
-              <span className="text-[10px] text-muted-foreground">{Math.round(r.similarity * 100)}%</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {r.category}{r.topic ? ` · ${r.topic}` : ""}{r.merchant ? ` · ${r.merchant}` : ""}
-            </p>
-          </Card>
-        ))}
+        {m.data?.map((r) => {
+          const status = r.status ?? "open";
+          const badgeCls =
+            status === "done"
+              ? "bg-emerald-500/15 text-emerald-700"
+              : status === "cancelled"
+                ? "bg-muted text-muted-foreground line-through"
+                : "bg-amber-500/15 text-amber-700";
+          return (
+            <Card key={r.id} className="p-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="font-serif text-base flex-1">{r.title}</h3>
+                <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${badgeCls}`}>
+                  {status === "done" ? "✓ Done" : status}
+                </span>
+                <span className="text-[10px] text-muted-foreground">{Math.round(r.similarity * 100)}%</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {r.category}{r.topic ? ` · ${r.topic}` : ""}{r.merchant ? ` · ${r.merchant}` : ""}
+                {r.completed_at ? ` · done ${new Date(r.completed_at).toLocaleDateString()}` : ""}
+              </p>
+            </Card>
+          );
+        })}
       </div>
     </PageShell>
   );
