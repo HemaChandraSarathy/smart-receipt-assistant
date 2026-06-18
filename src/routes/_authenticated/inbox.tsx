@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ItemActions } from "@/components/item-actions";
+import { EditItemDialog } from "@/components/edit-item-dialog";
 import { DeleteButton, ClearAllButton } from "@/components/delete-button";
 import {
   listItems,
