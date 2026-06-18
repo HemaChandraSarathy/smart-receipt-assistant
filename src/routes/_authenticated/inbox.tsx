@@ -523,8 +523,19 @@ function ItemRow({ item }: { item: Item }) {
     <Card className="p-4">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="font-serif text-base leading-tight flex-1">{item.title}</h3>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <CategoryChip cat={item.category} />
+          <EditItemDialog
+            itemId={item.id}
+            initial={{
+              title: item.title,
+              merchant: item.merchant,
+              amount: item.amount,
+              description: (item as unknown as { description?: string | null }).description ?? null,
+              assignee: item.assignee,
+              due_at: dueLike,
+            }}
+          />
           <DeleteButton id={item.id} label={item.title} deleteFn={softDeleteItem} restoreFn={restoreItem} />
         </div>
       </div>
