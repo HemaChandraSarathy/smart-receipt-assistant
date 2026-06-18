@@ -346,3 +346,198 @@ export const getStorageSignedUrl = createServerFn({ method: "POST" })
     if (error || !signed?.signedUrl) throw new Error(error?.message ?? "no signed url");
     return { url: signed.signedUrl };
   });
+
+// ============================================================
+// Item lifecycle: done / reschedule / cancel + notifications
+// ============================================================
+
+type ItemForLifecycle = {
+  id: string;
+  user_id: string;
+  title: string;
+  due_at: string | null;
+  expires_at: string | null;
+  rsvp_by: string | null;
+  calendar_event_id: string | null;
+  status: string;
+  original_due_at: string | null;
+  reschedule_count: number;
+};
+
+async function loadItem(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  itemId: string,
+  userId: string,
+): Promise<ItemForLifecycle> {
+  const { data, error } = await supabase
+    .from("items")
+    .select("id, user_id, title, due_at, expires_at, rsvp_by, calendar_event_id, status, original_due_at, reschedule_count")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) throw new Error(error?.message ?? "item not found");
+  return data as ItemForLifecycle;
+}
+
+function dueFieldOf(item: ItemForLifecycle): "due_at" | "expires_at" | "rsvp_by" | null {
+  if (item.due_at) return "due_at";
+  if (item.expires_at) return "expires_at";
+  if (item.rsvp_by) return "rsvp_by";
+  return null;
+}
+
+export const markItemDone = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ itemId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const item = await loadItem(supabase, data.itemId, userId);
+    const now = new Date().toISOString();
+
+    // Patch Google Calendar — mark cancelled (stops alerts) and prefix title with ✓
+    if (item.calendar_event_id) {
+      try {
+        const { calendarPatchEvent } = await import("@/lib/agent/tools.server");
+        await calendarPatchEvent(item.calendar_event_id, {
+          summary: `✓ ${item.title}`,
+          status: "cancelled",
+        });
+      } catch (e) {
+        console.warn("calendar patch on done failed", (e as Error).message);
+      }
+    }
+
+    await supabase
+      .from("items")
+      .update({ status: "done", completed_at: now })
+      .eq("id", item.id);
+
+    await supabase
+      .from("followups")
+      .update({ state: "acknowledged" })
+      .eq("item_id", item.id)
+      .eq("state", "scheduled");
+
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      item_id: item.id,
+      kind: "win",
+      title: "Nice work 🎉",
+      body: `${item.title} — done`,
+    });
+
+    return { ok: true };
+  });
+
+export const rescheduleItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ itemId: z.string().uuid(), newDateISO: z.string().min(8) }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const item = await loadItem(supabase, data.itemId, userId);
+    const field = dueFieldOf(item);
+    if (!field) throw new Error("item has no date to reschedule");
+    const newDate = new Date(data.newDateISO);
+    if (Number.isNaN(newDate.getTime())) throw new Error("invalid date");
+    const newISO = newDate.toISOString();
+    const endISO = new Date(newDate.getTime() + 30 * 60_000).toISOString();
+
+    if (item.calendar_event_id) {
+      try {
+        const { calendarPatchEvent } = await import("@/lib/agent/tools.server");
+        await calendarPatchEvent(item.calendar_event_id, { startISO: newISO, endISO });
+      } catch (e) {
+        console.warn("calendar patch on reschedule failed", (e as Error).message);
+      }
+    }
+
+    const original = item.original_due_at ?? item[field];
+    const patch: Record<string, unknown> = {
+      [field]: newISO,
+      original_due_at: original,
+      reschedule_count: (item.reschedule_count ?? 0) + 1,
+    };
+    await supabase.from("items").update(patch as never).eq("id", item.id);
+
+    // Reschedule any active followup to 24h before the new date
+    const nextNudge = new Date(newDate.getTime() - 24 * 60 * 60_000).toISOString();
+    await supabase
+      .from("followups")
+      .update({ next_nudge_at: nextNudge, state: "scheduled", attempts: 0 })
+      .eq("item_id", item.id);
+
+    return { ok: true };
+  });
+
+export const cancelItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ itemId: z.string().uuid(), reason: z.string().max(200).optional() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const item = await loadItem(supabase, data.itemId, userId);
+    const now = new Date().toISOString();
+
+    if (item.calendar_event_id) {
+      try {
+        const { calendarDeleteEvent } = await import("@/lib/agent/tools.server");
+        await calendarDeleteEvent(item.calendar_event_id);
+      } catch (e) {
+        console.warn("calendar delete on cancel failed", (e as Error).message);
+      }
+    }
+
+    await supabase
+      .from("items")
+      .update({ status: "cancelled", cancelled_at: now })
+      .eq("id", item.id);
+
+    await supabase
+      .from("followups")
+      .update({ state: "dismissed" })
+      .eq("item_id", item.id)
+      .eq("state", "scheduled");
+
+    return { ok: true };
+  });
+
+export const listWins = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("items")
+      .select("id, title, category, assignee, merchant, amount, currency, due_at, expires_at, rsvp_by, original_due_at, completed_at, reschedule_count")
+      .eq("status", "done")
+      .order("completed_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const listNotifications = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("notifications")
+      .select("id, item_id, kind, title, body, read_at, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const markNotificationRead = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid().optional(), all: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const now = new Date().toISOString();
+    if (data.all) {
+      await context.supabase.from("notifications").update({ read_at: now }).is("read_at", null);
+    } else if (data.id) {
+      await context.supabase.from("notifications").update({ read_at: now }).eq("id", data.id);
+    }
+    return { ok: true };
+  });

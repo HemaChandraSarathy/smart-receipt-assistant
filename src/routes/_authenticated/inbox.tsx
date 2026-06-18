@@ -6,7 +6,8 @@ import { useState } from "react";
 
 import { PageShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ItemActions } from "@/components/item-actions";
 import { listItems } from "@/lib/agent.functions";
 import type { Assignee, ItemCategory } from "@/lib/agent/types";
 
@@ -27,6 +28,7 @@ type Item = {
   due_at: string | null;
   expires_at: string | null;
   rsvp_by: string | null;
+  status?: string;
   created_at: string;
 };
 
@@ -47,7 +49,8 @@ function InboxPage() {
     refetchInterval: 10_000,
   });
   const [cat, setCat] = useState<"all" | ItemCategory>("all");
-  const filtered = (data ?? []).filter((i) => cat === "all" || i.category === cat);
+  const open = (data ?? []).filter((i) => (i.status ?? "open") === "open");
+  const filtered = open.filter((i) => cat === "all" || i.category === cat);
   const mom = filtered.filter((i) => i.assignee === "mom");
   const dad = filtered.filter((i) => i.assignee === "dad");
   const either = filtered.filter((i) => i.assignee === "either");
@@ -101,6 +104,9 @@ function Group({ label, items, accent }: { label: string; items: Item[]; accent:
 function ItemRow({ item }: { item: Item }) {
   const dueLike = item.due_at ?? item.expires_at ?? item.rsvp_by;
   const dueLabel = item.due_at ? "Due" : item.expires_at ? "Expires" : item.rsvp_by ? "RSVP" : null;
+  const isToday = dueLike
+    ? new Date(dueLike).toDateString() === new Date().toDateString()
+    : false;
   return (
     <Card className="p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -111,9 +117,12 @@ function ItemRow({ item }: { item: Item }) {
         {item.merchant && <span>{item.merchant}</span>}
         {item.amount != null && <span>{item.amount} {item.currency ?? ""}</span>}
         {dueLike && dueLabel && (
-          <span>{dueLabel}: {format(new Date(dueLike), "MMM d")}</span>
+          <span className={isToday ? "text-primary font-medium" : ""}>
+            {dueLabel}: {format(new Date(dueLike), "MMM d")}{isToday ? " · today" : ""}
+          </span>
         )}
       </div>
+      <ItemActions itemId={item.id} itemTitle={item.title} currentDate={dueLike} />
     </Card>
   );
 }

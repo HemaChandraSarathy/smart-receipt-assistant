@@ -154,6 +154,42 @@ export async function calendarCreateEvent(input: {
   return (await res.json()) as { id: string; htmlLink: string };
 }
 
+export async function calendarPatchEvent(eventId: string, patch: {
+  summary?: string;
+  description?: string;
+  startISO?: string;
+  endISO?: string;
+  status?: "confirmed" | "cancelled";
+}) {
+  const url = `${GATEWAY}/google_calendar/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  const body: Record<string, unknown> = {};
+  if (patch.summary !== undefined) body.summary = patch.summary;
+  if (patch.description !== undefined) body.description = patch.description;
+  if (patch.startISO) body.start = { dateTime: patch.startISO };
+  if (patch.endISO) body.end = { dateTime: patch.endISO };
+  if (patch.status) body.status = patch.status;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: gatewayHeaders("GOOGLE_CALENDAR_API_KEY"),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ToolError(`calendar patch ${res.status} ${await res.text()}`, "calendarPatchEvent");
+  return (await res.json()) as { id: string; htmlLink?: string };
+}
+
+export async function calendarDeleteEvent(eventId: string) {
+  const url = `${GATEWAY}/google_calendar/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: gatewayHeaders("GOOGLE_CALENDAR_API_KEY"),
+  });
+  // 410 = already deleted; treat as success
+  if (!res.ok && res.status !== 410 && res.status !== 404) {
+    throw new ToolError(`calendar delete ${res.status} ${await res.text()}`, "calendarDeleteEvent");
+  }
+}
+
+
 // ---------- DB ----------
 export async function saveItem(
   supabase: SupabaseClient,

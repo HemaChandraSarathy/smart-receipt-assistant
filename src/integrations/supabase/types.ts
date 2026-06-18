@@ -256,7 +256,10 @@ export type Database = {
           amount: number | null
           archived: boolean
           assignee: Database["public"]["Enums"]["assignee"]
+          calendar_event_id: string | null
+          cancelled_at: string | null
           category: Database["public"]["Enums"]["item_category"]
+          completed_at: string | null
           created_at: string
           currency: string | null
           description: string | null
@@ -266,11 +269,14 @@ export type Database = {
           id: string
           image_url: string | null
           merchant: string | null
+          original_due_at: string | null
           raw: Json | null
+          reschedule_count: number
           rsvp_by: string | null
           run_id: string | null
           source: string
           source_ref: Json | null
+          status: string
           title: string
           topic: string | null
           updated_at: string
@@ -280,7 +286,10 @@ export type Database = {
           amount?: number | null
           archived?: boolean
           assignee?: Database["public"]["Enums"]["assignee"]
+          calendar_event_id?: string | null
+          cancelled_at?: string | null
           category?: Database["public"]["Enums"]["item_category"]
+          completed_at?: string | null
           created_at?: string
           currency?: string | null
           description?: string | null
@@ -290,11 +299,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           merchant?: string | null
+          original_due_at?: string | null
           raw?: Json | null
+          reschedule_count?: number
           rsvp_by?: string | null
           run_id?: string | null
           source: string
           source_ref?: Json | null
+          status?: string
           title: string
           topic?: string | null
           updated_at?: string
@@ -304,7 +316,10 @@ export type Database = {
           amount?: number | null
           archived?: boolean
           assignee?: Database["public"]["Enums"]["assignee"]
+          calendar_event_id?: string | null
+          cancelled_at?: string | null
           category?: Database["public"]["Enums"]["item_category"]
+          completed_at?: string | null
           created_at?: string
           currency?: string | null
           description?: string | null
@@ -314,11 +329,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           merchant?: string | null
+          original_due_at?: string | null
           raw?: Json | null
+          reschedule_count?: number
           rsvp_by?: string | null
           run_id?: string | null
           source?: string
           source_ref?: Json | null
+          status?: string
           title?: string
           topic?: string | null
           updated_at?: string
@@ -330,6 +348,47 @@ export type Database = {
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          item_id: string | null
+          kind: string
+          read_at: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          item_id?: string | null
+          kind?: string
+          read_at?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          item_id?: string | null
+          kind?: string
+          read_at?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
             referencedColumns: ["id"]
           },
         ]
