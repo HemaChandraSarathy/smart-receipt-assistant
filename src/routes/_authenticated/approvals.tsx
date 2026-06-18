@@ -12,9 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { listPendingApprovals, resumeRun } from "@/lib/agent.functions";
+import { listPendingApprovals, resumeRun, softDeleteApproval, rejectAllApprovals } from "@/lib/agent.functions";
+import { DeleteButton, ClearAllButton } from "@/components/delete-button";
 import { toast } from "sonner";
 import type { ApprovalProposal, Assignee } from "@/lib/agent/types";
+
 
 export const Route = createFileRoute("/_authenticated/approvals")({
   head: () => ({ meta: [{ title: "Approvals — Inbox" }] }),
