@@ -5,7 +5,8 @@ import { formatDistanceToNow } from "date-fns";
 
 import { PageShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
-import { listRecentRuns } from "@/lib/agent.functions";
+import { DeleteButton, ClearAllButton } from "@/components/delete-button";
+import { listRecentRuns, softDeleteRun, clearFinishedRuns } from "@/lib/agent.functions";
 
 export const Route = createFileRoute("/_authenticated/runs")({
   head: () => ({ meta: [{ title: "Runs — Inbox" }] }),
@@ -31,8 +32,22 @@ function RunsPage() {
     refetchInterval: 5000,
   });
 
+  const hasFinished = (data ?? []).some((r) => ["done", "failed", "cancelled"].includes(r.status));
+
   return (
-    <PageShell title="Runs">
+    <PageShell
+      title="Runs"
+      action={
+        hasFinished ? (
+          <ClearAllButton
+            label="Clear finished"
+            description="Moves every done / failed / cancelled run to Trash."
+            clearFn={clearFinishedRuns}
+            variant="outline"
+          />
+        ) : undefined
+      }
+    >
       <p className="text-sm text-muted-foreground mb-4">
         Every agent run with its trace. Tap to see node-by-node.
       </p>
@@ -41,21 +56,28 @@ function RunsPage() {
       )}
       <div className="space-y-2">
         {data?.map((r) => (
-          <Link key={r.id} to="/runs/$runId" params={{ runId: r.id }}>
-            <Card className="p-4 hover:border-primary transition-colors">
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-wider text-muted-foreground">{r.input_kind}</span>
-                <StatusChip status={r.status} />
-              </div>
-              <p className="text-sm mt-1">
-                {r.current_node ?? (r.status === "done" ? "Completed" : r.status)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatDistanceToNow(new Date(r.started_at), { addSuffix: true })}
-              </p>
-              {r.error && <p className="text-xs text-destructive mt-1">{r.error}</p>}
-            </Card>
-          </Link>
+          <Card key={r.id} className="p-4 hover:border-primary transition-colors">
+            <div className="flex items-start gap-2">
+              <Link to="/runs/$runId" params={{ runId: r.id }} className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">{r.input_kind}</span>
+                  <StatusChip status={r.status} />
+                </div>
+                <p className="text-sm mt-1">
+                  {r.current_node ?? (r.status === "done" ? "Completed" : r.status)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatDistanceToNow(new Date(r.started_at), { addSuffix: true })}
+                </p>
+                {r.error && <p className="text-xs text-destructive mt-1">{r.error}</p>}
+              </Link>
+              <DeleteButton
+                id={r.id}
+                label={`run from ${r.input_kind}`}
+                deleteFn={softDeleteRun}
+              />
+            </div>
+          </Card>
         ))}
       </div>
     </PageShell>
