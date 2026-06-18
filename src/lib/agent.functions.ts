@@ -259,6 +259,58 @@ export const listCalendarItems = createServerFn({ method: "GET" })
     }));
   });
 
+// ---- list upcoming events from connected Google Calendar (primary) ----
+export const listGoogleCalendarEvents = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const lovableKey = process.env.LOVABLE_API_KEY;
+    const connKey = process.env.GOOGLE_CALENDAR_API_KEY;
+    if (!lovableKey || !connKey) {
+      return { connected: false as const, events: [] };
+    }
+    const now = new Date().toISOString();
+    const url = new URL(
+      "https://connector-gateway.lovable.dev/google_calendar/calendar/v3/calendars/primary/events"
+    );
+    url.searchParams.set("timeMin", now);
+    url.searchParams.set("maxResults", "25");
+    url.searchParams.set("singleEvents", "true");
+    url.searchParams.set("orderBy", "startTime");
+    const res = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "X-Connection-Api-Key": connKey,
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      return { connected: true as const, events: [], error: `${res.status}: ${body.slice(0, 200)}` };
+    }
+    const data = (await res.json()) as {
+      items?: Array<{
+        id: string;
+        summary?: string;
+        description?: string;
+        htmlLink?: string;
+        start?: { dateTime?: string; date?: string };
+        end?: { dateTime?: string; date?: string };
+        reminders?: { useDefault?: boolean; overrides?: Array<{ method: string; minutes: number }> };
+      }>;
+    };
+    return {
+      connected: true as const,
+      events: (data.items ?? []).map((e) => ({
+        id: e.id,
+        summary: e.summary ?? "(no title)",
+        description: e.description ?? null,
+        htmlLink: e.htmlLink ?? null,
+        start: e.start?.dateTime ?? e.start?.date ?? null,
+        end: e.end?.dateTime ?? e.end?.date ?? null,
+        reminders: e.reminders ?? null,
+      })),
+    };
+  });
+
 export const askMemory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ q: z.string().min(1).max(500) }).parse(d))
