@@ -5,10 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Inbox — Your household paper trail" },
-      { name: "description", content: "Snap, scan, and let agents sort every receipt, promo, coupon, bill, and RSVP." },
-      { property: "og:title", content: "Inbox" },
-      { property: "og:description", content: "Your household paper trail, handled by agents." },
+      { title: "Unburden — Your mental inbox" },
+      { name: "description", content: "Offload, plan, and execute every bill, promo, invite, repair, and return." },
+      { property: "og:title", content: "Unburden" },
+      { property: "og:description", content: "Your mental inbox — offload it, plan it, execute it." },
     ],
   }),
   component: Landing,
