@@ -1,101 +1,79 @@
-# Golden dataset for the extractor
+# Inbox parent split + Soft-delete + Clear actions
 
-A small, growing library of "this is what a human would have extracted" examples. We store the source image + the ideal multi-task output + notes about what's tricky. Two payoffs:
+## 1. Inbox split by Mom / Dad
 
-1. **Few-shot the live extractor** — inject 1–2 most-relevant examples into the vision prompt so it stops collapsing multi-task documents into one item and stops hallucinating dates.
-2. **Eval harness** — re-run the current extractor against every golden example on demand and see a pass/fail diff.
+Add a second tab row under Open / Done / Cancelled:
 
-You add new examples from the app; no code change needed each time.
-
-## What ships in v1
-
-### 1. Database (migration)
-
-New table `golden_examples`:
-
-| column | type | notes |
-|---|---|---|
-| `id` | uuid pk | |
-| `user_id` | uuid | who added it |
-| `title` | text | "Main Street Theater flyer" |
-| `image_url` | text | stored permanently in `golden/` storage bucket (never auto-deleted) |
-| `source_text` | text | optional verbatim transcript |
-| `notes` | text | "no date on doc, only 'Friday'; multi-task" |
-| `expected_items` | jsonb | array of ideal items (see shape below) |
-| `expected_clarifications` | jsonb | array of `{ question, options? }` the agent should have asked |
-| `failure_tags` | text[] | e.g. `['hallucinated_date','missed_multi_task','dropped_context']` |
-| `created_at` | timestamptz | |
-
-`expected_items[]` shape (mirrors `ExtractedItem` + a `source_quote` per field and an explicit `date_known` flag):
-
-```json
-{
-  "title": "Pay $5 for Friday pizza lunch",
-  "category": "bill",
-  "amount": 5,
-  "due_at": null,
-  "due_at_hint": "Thursday",
-  "date_known": false,
-  "description": "Pepperoni/cheese & cheese only; 2 slices, 3 if extras.",
-  "source_quote": "bring $5 by Thursday"
-}
+```text
+[ All ] [ Mom ] [ Dad ] [ Either ]
 ```
 
-RLS: owner-only read/write. GRANT to `authenticated` + `service_role`.
+- `All` keeps the current grouped layout (Mom / Dad / Either sections).
+- `Mom` / `Dad` / `Either` filter to that assignee (flat list, no section header).
+- Each tab shows a count: `Mom · 4`.
+- Filter applies across Open, Done, and Cancelled tabs.
+- Remember last-picked parent in `localStorage`.
 
-New storage bucket `golden` (private, signed URLs for viewing).
+Client-side only — filters on `item.assignee`.
 
-### 2. Seed the Main Street Theater case
+## 2. Soft delete
 
-Migration inserts one row with:
-- Image uploaded to `golden/main-street-theater.jpg` (re-uploaded from `user-uploads://image.jpg`)
-- `expected_items` covering 4 tasks: pizza $5/Thu, performance Fri (date unknown — needs group), label props/costumes (Thu reminder), video link FYI (no action)
-- `expected_clarifications`: `[{question:"Which group is your child in?", options:["A (6-7) 3:30","B (8-10) 4:30","SSC (11-14) 5:30"]}, {question:"What's the date of this Friday?"}]`
-- `failure_tags`: `['hallucinated_date','missed_multi_task','dropped_context','missed_clarification']`
+Soft delete (not hard) so the user can undo or audit. Add a `deleted_at timestamptz` column to `items`, `approvals`, `agent_runs`, and `notifications`. All existing list queries filter `where deleted_at is null`.
 
-### 3. Admin UI — `/golden`
+New server fns (all `requireSupabaseAuth`, scoped by `user_id`):
 
-Authenticated route. Two screens:
+- `softDeleteItem({ itemId })` — sets `deleted_at = now()`; best-effort removes the linked calendar event.
+- `restoreItem({ itemId })` — clears `deleted_at`.
+- `softDeleteApproval({ approvalId })`
+- `softDeleteRun({ runId })` — also soft-deletes its approvals.
+- `softDeleteNotification({ id })`
+- `listDeletedItems()` — for the Trash view.
+- Bulk: `clearCancelledItems()`, `clearReadNotifications()`, `clearFinishedRuns()`, `rejectAllApprovals()` — all soft-delete.
+- `emptyTrash()` — hard-deletes rows where `deleted_at < now() - 30 days` (also exposed as a button).
 
-- **List**: cards with thumbnail, title, # expected items, failure tags, last eval result.
-- **New / Edit**: upload image, title, notes, JSON editor (Monaco-lite via `<Textarea>` for now) for `expected_items` and `expected_clarifications`, failure tag chips.
-- **Run eval** button on each row: calls the current extractor against the stored image, then renders a side-by-side diff (expected vs actual: item count, missing titles, hallucinated date Y/N).
+After every soft-delete mutation: toast with **Undo** button that calls the corresponding `restore*` fn.
 
-Nav: add a small "Golden" link in the header (only visible to signed-in users — no role gate v1; we can add admin role later).
+A scheduled cleanup (pg_cron, daily) hard-deletes rows older than 30 days. Out of scope if cron isn't already wired — the "Empty trash" button covers it for now.
 
-### 4. Few-shot injection in `visionExtract`
+### Where the delete (trash) icon appears
 
-`src/lib/agent/tools.server.ts` → before calling Gemini, fetch up to 2 golden examples from the same user (most recent first; later swap to embedding similarity) and prepend them as user/assistant turns showing input → expected JSON. Existing `EXTRACTOR_SYSTEM` prompt gets a new line: *"A document may contain multiple tasks — return one item per actionable task. If a date is partially specified (e.g. only a weekday), set `due_at: null` and put the literal phrase in `due_at_hint`. Never invent a year."*
+| Where | Action |
+| --- | --- |
+| Inbox row (Open / Done / Cancelled) | `softDeleteItem` + undo toast |
+| Approvals card | `softDeleteApproval` (separate from "Skip") |
+| Notifications row | `softDeleteNotification` |
+| Golden examples row | `softDeleteGoldenExample` |
+| Runs row | `softDeleteRun` |
 
-Also: make `visionExtract` return `ExtractedItem[]` instead of a single item. Graph (`graph.server.ts`) loops and creates one approval per item. This is the structural change the previous reply called out.
+### New Trash view
 
-### 5. Eval server function
+Add a `Trash` tab to the Inbox status row → `[ Open ] [ Done ] [ Cancelled ] [ Trash ]`. Lists everything soft-deleted in the last 30 days with **Restore** and **Delete forever** buttons, plus a header **Empty trash** button.
 
-`runGoldenEval(exampleId)` → re-runs `visionExtract` on the stored image, returns `{ expectedCount, actualCount, missingTitles, hallucinatedDate, extraItems, rawActual }`. Stored on the row as `last_eval` jsonb + `last_eval_at`.
+## 3. Clear-all buttons — recommendations
 
-## Out of scope for v1 (call out, don't build)
+Spots that genuinely benefit from a bulk Clear:
 
-- Embedding-based example selection (we'll use recency first; trivial swap later).
-- Automated regression CI run.
-- A clarifying-question node in the agent graph — captured in the golden expectations so we can build it next, against a real target.
+1. **Inbox › Cancelled** — "Clear all cancelled" (soft-delete every cancelled item).
+2. **Inbox › Trash** — "Empty trash" (hard-delete everything in trash now).
+3. **Notifications header** — "Mark all read" + "Clear read".
+4. **Approvals page** — "Skip all" (rejects every pending approval).
+5. **Runs page** — "Clear finished" (soft-delete completed/failed runs).
+6. **Inbox filter row** — small "Clear filters" link when category ≠ All or parent ≠ All.
+7. **Golden examples** — "Clear last eval" per row (resets `last_eval`/`last_eval_at`).
 
-## Technical details
+Skip Clear-all on Done/Wins — those are reward surfaces.
 
-- New files:
-  - `supabase/migrations/<ts>_golden_examples.sql` — table, RLS, GRANTs, storage bucket, seed insert.
-  - `src/lib/golden.functions.ts` — `listGolden`, `upsertGolden`, `deleteGolden`, `runGoldenEval`, `uploadGoldenImage` (all `requireSupabaseAuth`).
-  - `src/routes/_authenticated/golden.tsx` — list + new/edit dialog + eval results.
-- Edited files:
-  - `src/lib/agent/tools.server.ts` — multi-item return + few-shot injection + stricter prompt + new `due_at_hint` / `date_known` / `source_quote` fields on `extractedSchema`.
-  - `src/lib/agent/types.ts` — extend `ExtractedItem` with the new optional fields; export `ExtractedItem[]` from extract step.
-  - `src/lib/agent/graph.server.ts` — extract returns array; loop produces one approval per item; preserve `parent_run_id` link.
-  - `src/components/app-shell.tsx` — add "Golden" link in the header menu.
-- Seed image: re-upload `user-uploads://image.jpg` to `golden/main-street-theater.jpg` via `supabase--storage_upload` after the migration runs.
+## Technical notes
 
-## Verification
+- One migration: add `deleted_at timestamptz` (nullable, indexed) to `items`, `approvals`, `agent_runs`, `notifications`, `golden_examples`. No data backfill needed.
+- Update every existing `select` in `agent.functions.ts` / `golden.functions.ts` to add `.is('deleted_at', null)` — list this as a checklist in the implementation, easy to miss.
+- New `<DeleteButton>` component: trash icon, confirm dialog, calls the relevant `softDelete*` fn, fires undo toast.
+- `useUndoToast(restoreFn, label)` helper to keep call-sites tiny.
+- Approvals "Skip" stays as today (rejects the agent step); the new trash icon is a separate destructive action that removes the approval row.
+- Inbox parent tabs: lift a `parent` state alongside `status` and `cat`; pass into Open/Done/Cancelled/Trash views.
 
-1. Migration applies; `golden_examples` has 1 seeded row.
-2. `/golden` lists the seeded row with thumbnail.
-3. Click **Run eval** → result shows current extractor still collapses to 1 item and hallucinates a 2024 date (proves the gap).
-4. Re-capture the same flyer via `/capture` → the new multi-item extractor returns ≥3 items, no fabricated year, and queues 3 approvals.
-5. Add a second golden example via the UI; confirm it persists and re-runs eval cleanly.
+## Out of scope
+
+- Auto-purge cron job (manual "Empty trash" button instead).
+- Multi-select bulk delete inside Inbox lists.
+- Restoring a deleted run's calendar event (soft-delete only clears the row, not the calendar artifact).
