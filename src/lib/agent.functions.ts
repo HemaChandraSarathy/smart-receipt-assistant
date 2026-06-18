@@ -853,3 +853,66 @@ export const deleteTrashedItemForever = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+
+// ---- edit an item's user-facing fields (and patch the linked calendar event) ----
+const UpdateItemInput = z.object({
+  itemId: z.string().uuid(),
+  title: z.string().min(1).max(200).optional(),
+  merchant: z.string().max(200).nullable().optional(),
+  amount: z.number().nullable().optional(),
+  description: z.string().max(4000).nullable().optional(),
+  assignee: z.enum(["mom", "dad", "either"]).optional(),
+  due_at: z.string().nullable().optional(),
+});
+export const updateItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => UpdateItemInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: cur, error: loadErr } = await supabase
+      .from("items")
+      .select("id, calendar_event_id, due_at, expires_at, rsvp_by, title")
+      .eq("id", data.itemId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (loadErr || !cur) throw new Error(loadErr?.message ?? "item not found");
+
+    const patch: Record<string, unknown> = {};
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.merchant !== undefined) patch.merchant = data.merchant;
+    if (data.amount !== undefined) patch.amount = data.amount;
+    if (data.description !== undefined) patch.description = data.description;
+    if (data.assignee !== undefined) patch.assignee = data.assignee;
+
+    // Route the date update to whichever date field this item uses.
+    let newDateISO: string | null | undefined;
+    if (data.due_at !== undefined) {
+      const field = cur.due_at ? "due_at" : cur.expires_at ? "expires_at" : cur.rsvp_by ? "rsvp_by" : "due_at";
+      patch[field] = data.due_at;
+      newDateISO = data.due_at;
+    }
+
+    const { error: upErr } = await supabase.from("items").update(patch as never).eq("id", data.itemId);
+    if (upErr) throw new Error(upErr.message);
+
+    // Best-effort sync to Google Calendar.
+    if (cur.calendar_event_id && (data.title !== undefined || data.description !== undefined || newDateISO !== undefined)) {
+      try {
+        const { calendarPatchEvent } = await import("@/lib/agent/tools.server");
+        const calPatch: Parameters<typeof calendarPatchEvent>[1] = {};
+        if (data.title !== undefined) calPatch.summary = data.title;
+        if (data.description !== undefined) calPatch.description = data.description ?? "";
+        if (newDateISO) {
+          calPatch.startISO = newDateISO;
+          calPatch.endISO = new Date(new Date(newDateISO).getTime() + 30 * 60_000).toISOString();
+        } else if (newDateISO === null) {
+          // clearing the date — cancel the linked event so reminders stop
+          calPatch.status = "cancelled";
+        }
+        await calendarPatchEvent(cur.calendar_event_id as string, calPatch);
+      } catch (e) {
+        console.warn("calendar patch on edit failed", (e as Error).message);
+      }
+    }
+    return { ok: true };
+  });
