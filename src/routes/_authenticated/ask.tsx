@@ -15,35 +15,34 @@ export const Route = createFileRoute("/_authenticated/ask")({
   component: AskPage,
 });
 
-type Match = {
+type Source = {
   id: string;
   title: string;
   category: string;
   topic: string | null;
-  assignee: string;
   merchant: string | null;
-  amount: number | null;
-  due_at: string | null;
-  expires_at: string | null;
   status: string | null;
   completed_at: string | null;
   similarity: number;
 };
 
+type AskResult = { answer: string; sources: Source[]; scanned: boolean };
+
 function AskPage() {
   const ask = useServerFn(askMemory);
   const [q, setQ] = useState("");
+  const [showSources, setShowSources] = useState(false);
   const m = useMutation({
-    mutationFn: async () => (await ask({ data: { q } })) as unknown as Match[],
+    mutationFn: async () => (await ask({ data: { q } })) as unknown as AskResult,
   });
 
   return (
     <PageShell title="Ask">
       <p className="text-sm text-muted-foreground mb-4">
-        Search everything you've saved. Try <em>"do I have a plumbing coupon?"</em>
+        Ask anything about your saved items. <em>"Have I returned the library books?"</em>
       </p>
       <form
-        onSubmit={(e) => { e.preventDefault(); if (q.trim()) m.mutate(); }}
+        onSubmit={(e) => { e.preventDefault(); if (q.trim()) { setShowSources(false); m.mutate(); } }}
         className="flex gap-2 mb-4"
       >
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask a question…" />
@@ -51,35 +50,52 @@ function AskPage() {
           {m.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
         </Button>
       </form>
-      {m.data && m.data.length === 0 && (
-        <p className="text-sm text-muted-foreground">No matches.</p>
+
+      {m.isPending && (
+        <p className="text-sm text-muted-foreground">Thinking…</p>
       )}
-      <div className="space-y-2">
-        {m.data?.map((r) => {
-          const status = r.status ?? "open";
-          const badgeCls =
-            status === "done"
-              ? "bg-emerald-500/15 text-emerald-700"
-              : status === "cancelled"
-                ? "bg-muted text-muted-foreground line-through"
-                : "bg-amber-500/15 text-amber-700";
-          return (
-            <Card key={r.id} className="p-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <h3 className="font-serif text-base flex-1">{r.title}</h3>
-                <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${badgeCls}`}>
-                  {status === "done" ? "✓ Done" : status}
-                </span>
-                <span className="text-[10px] text-muted-foreground">{Math.round(r.similarity * 100)}%</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {r.category}{r.topic ? ` · ${r.topic}` : ""}{r.merchant ? ` · ${r.merchant}` : ""}
-                {r.completed_at ? ` · done ${new Date(r.completed_at).toLocaleDateString()}` : ""}
-              </p>
-            </Card>
-          );
-        })}
-      </div>
+
+      {m.data && (
+        <Card className="p-4 mb-3">
+          <p className="text-base leading-relaxed whitespace-pre-wrap">{m.data.answer}</p>
+          {m.data.scanned && (
+            <p className="text-[11px] text-muted-foreground mt-2">Checked recent Gmail.</p>
+          )}
+          {m.data.sources.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowSources((s) => !s)}
+              className="text-xs text-muted-foreground underline mt-3"
+            >
+              {showSources ? "Hide" : "Show"} {m.data.sources.length} source{m.data.sources.length === 1 ? "" : "s"}
+            </button>
+          )}
+        </Card>
+      )}
+
+      {showSources && m.data?.sources.map((r) => {
+        const status = r.status ?? "open";
+        const badgeCls =
+          status === "done"
+            ? "bg-emerald-500/15 text-emerald-700"
+            : status === "cancelled"
+              ? "bg-muted text-muted-foreground line-through"
+              : "bg-amber-500/15 text-amber-700";
+        return (
+          <Card key={r.id} className="p-3 mb-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm flex-1">{r.title}</h3>
+              <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${badgeCls}`}>
+                {status === "done" ? "✓ Done" : status}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {r.category}{r.topic ? ` · ${r.topic}` : ""}{r.merchant ? ` · ${r.merchant}` : ""}
+              {r.completed_at ? ` · done ${new Date(r.completed_at).toLocaleDateString()}` : ""}
+            </p>
+          </Card>
+        );
+      })}
     </PageShell>
   );
 }
