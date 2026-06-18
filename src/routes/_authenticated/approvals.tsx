@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { format } from "date-fns";
-import { Check, X, Pencil, CalendarPlus, Save, Loader2 } from "lucide-react";
+import { Check, X, CalendarPlus, Loader2 } from "lucide-react";
 
 import { PageShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { listPendingApprovals, resumeRun } from "@/lib/agent.functions";
 import { toast } from "sonner";
@@ -53,10 +54,23 @@ function ApprovalsPage() {
   );
 }
 
+// Datetime helpers for <input type="datetime-local">
+function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localInputToISO(v: string): string {
+  if (!v) return "";
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
 function ApprovalCard({ approval }: { approval: Approval }) {
   const resume = useServerFn(resumeRun);
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
   const [patch, setPatch] = useState<Record<string, unknown>>({});
 
   const decide = useMutation({
@@ -75,9 +89,12 @@ function ApprovalCard({ approval }: { approval: Approval }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Treat any field change as an "edit" submission so the patch reaches the server.
+  const hasEdits = Object.keys(patch).length > 0;
+  const submitAction: "edit" | "approve" = hasEdits ? "edit" : "approve";
+
   if (approval.proposal.kind === "save_item") {
     const { item, assignment } = approval.proposal;
-    const merged = { ...item, assignee: assignment.assignee, ...patch } as typeof item & { assignee: Assignee };
     return (
       <Card className="p-5">
         <div className="flex items-center justify-between mb-1">
@@ -86,28 +103,49 @@ function ApprovalCard({ approval }: { approval: Approval }) {
           </span>
           <AssigneeBadge a={(patch.assignee as Assignee) ?? assignment.assignee} />
         </div>
-        <h3 className="font-serif text-lg leading-tight">{merged.title}</h3>
-        {merged.merchant && <p className="text-sm text-muted-foreground">{merged.merchant}</p>}
-        <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
-          {item.amount != null && (
-            <div><span className="text-muted-foreground">Amount</span><div>{item.amount} {item.currency ?? "USD"}</div></div>
-          )}
-          {item.due_at && <DateChip label="Due" iso={item.due_at} />}
-          {item.expires_at && <DateChip label="Expires" iso={item.expires_at} />}
-          {item.rsvp_by && <DateChip label="RSVP by" iso={item.rsvp_by} />}
-        </div>
-        {item.description && <p className="text-sm mt-3">{item.description}</p>}
-        <p className="text-xs text-muted-foreground mt-3">
-          Assigned via: {assignment.reasoning} ({Math.round(assignment.confidence * 100)}%)
+        <p className="text-xs text-muted-foreground mb-3">
+          Edit any field before approving — your changes save to the item and the calendar event.
         </p>
 
-        {editing && (
-          <div className="mt-4 space-y-2 border-t border-border pt-3">
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Title</Label>
+            <Input
+              defaultValue={item.title}
+              onChange={(e) => setPatch((p) => ({ ...p, title: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Title</Label>
+              <Label className="text-xs">Merchant</Label>
               <Input
-                defaultValue={item.title}
-                onChange={(e) => setPatch((p) => ({ ...p, title: e.target.value }))}
+                defaultValue={item.merchant ?? ""}
+                onChange={(e) => setPatch((p) => ({ ...p, merchant: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Amount</Label>
+              <Input
+                type="number"
+                step="0.01"
+                defaultValue={item.amount ?? ""}
+                onChange={(e) => setPatch((p) => ({ ...p, amount: e.target.value === "" ? null : Number(e.target.value) }))}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">
+                {item.due_at ? "Due" : item.expires_at ? "Expires" : item.rsvp_by ? "RSVP by" : "Due"}
+              </Label>
+              <Input
+                type="datetime-local"
+                defaultValue={isoToLocalInput(item.due_at ?? item.expires_at ?? item.rsvp_by)}
+                onChange={(e) => {
+                  const iso = localInputToISO(e.target.value);
+                  const key = item.due_at ? "due_at" : item.expires_at ? "expires_at" : item.rsvp_by ? "rsvp_by" : "due_at";
+                  setPatch((p) => ({ ...p, [key]: iso }));
+                }}
               />
             </div>
             <div>
@@ -125,7 +163,20 @@ function ApprovalCard({ approval }: { approval: Approval }) {
               </Select>
             </div>
           </div>
-        )}
+          <div>
+            <Label className="text-xs">Notes for the calendar event</Label>
+            <Textarea
+              placeholder="Anything you want on the calendar event…"
+              defaultValue={item.description ?? ""}
+              onChange={(e) => setPatch((p) => ({ ...p, description: e.target.value }))}
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground mt-3">
+          Assigned via: {assignment.reasoning} ({Math.round(assignment.confidence * 100)}%)
+        </p>
 
         <div className="flex gap-2 mt-4">
           <Button
@@ -134,26 +185,12 @@ function ApprovalCard({ approval }: { approval: Approval }) {
             onClick={() => decide.mutate("reject")}
             disabled={decide.isPending}
           ><X className="h-4 w-4 mr-1" /> Skip</Button>
-          {!editing ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setEditing(true)}
-              disabled={decide.isPending}
-            ><Pencil className="h-4 w-4 mr-1" /> Edit</Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={() => decide.mutate("edit")}
-              disabled={decide.isPending}
-            ><Save className="h-4 w-4 mr-1" /> Save edits</Button>
-          )}
           <Button
             size="sm"
             className="ml-auto"
-            onClick={() => decide.mutate("approve")}
+            onClick={() => decide.mutate(submitAction)}
             disabled={decide.isPending}
-          >{decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve</Button>
+          >{decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve & save to calendar</Button>
         </div>
       </Card>
     );
@@ -168,30 +205,59 @@ function ApprovalCard({ approval }: { approval: Approval }) {
         <CalendarPlus className="h-4 w-4 text-primary" />
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Create calendar event</span>
       </div>
-      <h3 className="font-serif text-lg leading-tight">{cal.summary}</h3>
-      <p className="text-sm text-muted-foreground mt-1">
-        {format(new Date(cal.startISO), "EEE MMM d, p")}
+      <p className="text-xs text-muted-foreground mb-3">
+        Edit any field before adding it to your calendar.
       </p>
-      {cal.description && <p className="text-sm mt-2 whitespace-pre-wrap">{cal.description}</p>}
+
+      <div className="space-y-3">
+        <div>
+          <Label className="text-xs">Title</Label>
+          <Input
+            defaultValue={cal.summary}
+            onChange={(e) => setPatch((p) => ({ ...p, summary: e.target.value }))}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Start</Label>
+            <Input
+              type="datetime-local"
+              defaultValue={isoToLocalInput(cal.startISO)}
+              onChange={(e) => setPatch((p) => ({ ...p, startISO: localInputToISO(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">End</Label>
+            <Input
+              type="datetime-local"
+              defaultValue={isoToLocalInput(cal.endISO)}
+              onChange={(e) => setPatch((p) => ({ ...p, endISO: localInputToISO(e.target.value) }))}
+            />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs">Notes for the calendar event</Label>
+          <Textarea
+            defaultValue={cal.description ?? ""}
+            onChange={(e) => setPatch((p) => ({ ...p, description: e.target.value }))}
+            rows={4}
+          />
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground mt-3">
+        Originally: {format(new Date(cal.startISO), "EEE MMM d, p")}
+      </p>
+
       <div className="flex gap-2 mt-4">
         <Button variant="outline" size="sm" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
           <X className="h-4 w-4 mr-1" /> Skip
         </Button>
-        <Button size="sm" className="ml-auto" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
-          {decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Add to calendar
+        <Button size="sm" className="ml-auto" onClick={() => decide.mutate(submitAction)} disabled={decide.isPending}>
+          {decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve & add to calendar
         </Button>
       </div>
     </Card>
-  );
-}
-
-function DateChip({ label, iso }: { label: string; iso: string }) {
-  const d = new Date(iso);
-  return (
-    <div>
-      <span className="text-muted-foreground">{label}</span>
-      <div>{isNaN(d.getTime()) ? iso : format(d, "MMM d, yyyy")}</div>
-    </div>
   );
 }
 
