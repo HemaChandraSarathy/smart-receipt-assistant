@@ -1,16 +1,18 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Camera, Inbox as InboxIcon, CheckCircle2, MessageCircle, Activity, LogOut, CalendarDays } from "lucide-react";
+import { Camera, Inbox as InboxIcon, CheckCircle2, MessageCircle, Activity, LogOut, CalendarDays, Trophy } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notification-bell";
 
 const tabs = [
   { to: "/inbox", label: "Inbox", icon: InboxIcon },
   { to: "/capture", label: "Capture", icon: Camera },
   { to: "/approvals", label: "Approve", icon: CheckCircle2 },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
+  { to: "/wins", label: "Wins", icon: Trophy },
   { to: "/ask", label: "Ask", icon: MessageCircle },
   { to: "/runs", label: "Runs", icon: Activity },
 ] as const;
