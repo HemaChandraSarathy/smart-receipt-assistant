@@ -104,6 +104,9 @@ function Group({ label, items, accent }: { label: string; items: Item[]; accent:
 function ItemRow({ item }: { item: Item }) {
   const dueLike = item.due_at ?? item.expires_at ?? item.rsvp_by;
   const dueLabel = item.due_at ? "Due" : item.expires_at ? "Expires" : item.rsvp_by ? "RSVP" : null;
+  const isToday = dueLike
+    ? new Date(dueLike).toDateString() === new Date().toDateString()
+    : false;
   return (
     <Card className="p-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -114,9 +117,12 @@ function ItemRow({ item }: { item: Item }) {
         {item.merchant && <span>{item.merchant}</span>}
         {item.amount != null && <span>{item.amount} {item.currency ?? ""}</span>}
         {dueLike && dueLabel && (
-          <span>{dueLabel}: {format(new Date(dueLike), "MMM d")}</span>
+          <span className={isToday ? "text-primary font-medium" : ""}>
+            {dueLabel}: {format(new Date(dueLike), "MMM d")}{isToday ? " · today" : ""}
+          </span>
         )}
       </div>
+      <ItemActions itemId={item.id} itemTitle={item.title} currentDate={dueLike} />
     </Card>
   );
 }
