@@ -1,7 +1,7 @@
 // Shared types used by both server (graph) and client (UI).
 // No server-only imports here.
 
-export type ItemCategory = "bill" | "promo" | "coupon" | "invite" | "receipt" | "other";
+export type ItemCategory = "bill" | "promo" | "invite" | "repair" | "return" | "other";
 export type Assignee = "mom" | "dad" | "either";
 
 export interface ExtractedItem {
