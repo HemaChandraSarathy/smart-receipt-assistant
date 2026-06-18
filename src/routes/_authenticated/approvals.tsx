@@ -41,7 +41,19 @@ function ApprovalsPage() {
   });
 
   return (
-    <PageShell title="Approvals">
+    <PageShell
+      title="Approvals"
+      action={
+        data && data.length > 1 ? (
+          <ClearAllButton
+            label="Skip all"
+            description="Rejects every pending approval and moves them to Trash."
+            clearFn={rejectAllApprovals}
+            variant="outline"
+          />
+        ) : undefined
+      }
+    >
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {data && data.length === 0 && (
         <Card className="p-6 text-center">
@@ -55,6 +67,7 @@ function ApprovalsPage() {
     </PageShell>
   );
 }
+
 
 // Datetime helpers for <input type="datetime-local">
 function isoToLocalInput(iso: string | null | undefined): string {
