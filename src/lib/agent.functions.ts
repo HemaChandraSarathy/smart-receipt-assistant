@@ -213,10 +213,12 @@ export const listCalendarItems = createServerFn({ method: "GET" })
       .from("items")
       .select("id, run_id, title, category, assignee, merchant, amount, currency, due_at, expires_at, rsvp_by")
       .eq("archived", false)
+      .is("deleted_at", null)
       .or("due_at.not.is.null,expires_at.not.is.null,rsvp_by.not.is.null")
       .order("due_at", { ascending: true, nullsFirst: false })
       .limit(200);
     if (error) throw new Error(error.message);
+
     const list = items ?? [];
     const itemIds = list.map((i) => i.id);
     const runIds = Array.from(new Set(list.map((i) => i.run_id).filter(Boolean))) as string[];
