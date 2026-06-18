@@ -49,7 +49,8 @@ function InboxPage() {
     refetchInterval: 10_000,
   });
   const [cat, setCat] = useState<"all" | ItemCategory>("all");
-  const filtered = (data ?? []).filter((i) => cat === "all" || i.category === cat);
+  const open = (data ?? []).filter((i) => (i.status ?? "open") === "open");
+  const filtered = open.filter((i) => cat === "all" || i.category === cat);
   const mom = filtered.filter((i) => i.assignee === "mom");
   const dad = filtered.filter((i) => i.assignee === "dad");
   const either = filtered.filter((i) => i.assignee === "either");
