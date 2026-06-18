@@ -505,6 +505,8 @@ export type Database = {
         | "invite"
         | "receipt"
         | "other"
+        | "repair"
+        | "return"
       run_status:
         | "running"
         | "awaiting_approval"
@@ -640,7 +642,16 @@ export const Constants = {
     Enums: {
       approval_status: ["pending", "approved", "edited", "rejected"],
       assignee: ["mom", "dad", "either"],
-      item_category: ["bill", "promo", "coupon", "invite", "receipt", "other"],
+      item_category: [
+        "bill",
+        "promo",
+        "coupon",
+        "invite",
+        "receipt",
+        "other",
+        "repair",
+        "return",
+      ],
       run_status: [
         "running",
         "awaiting_approval",
