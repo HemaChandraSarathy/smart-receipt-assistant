@@ -485,11 +485,13 @@ export type Database = {
           amount: number
           assignee: Database["public"]["Enums"]["assignee"]
           category: Database["public"]["Enums"]["item_category"]
+          completed_at: string
           due_at: string
           expires_at: string
           id: string
           merchant: string
           similarity: number
+          status: string
           title: string
           topic: string
         }[]
