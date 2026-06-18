@@ -16,10 +16,12 @@ export const listGolden = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("golden_examples")
       .select("*")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data ?? [];
   });
+
 
 // ---- signed url for the seeded/uploaded image ----
 export const getGoldenSignedUrl = createServerFn({ method: "POST" })
