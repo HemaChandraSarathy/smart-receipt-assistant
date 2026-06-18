@@ -12,9 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { listPendingApprovals, resumeRun } from "@/lib/agent.functions";
+import { listPendingApprovals, resumeRun, softDeleteApproval, rejectAllApprovals } from "@/lib/agent.functions";
+import { DeleteButton, ClearAllButton } from "@/components/delete-button";
 import { toast } from "sonner";
 import type { ApprovalProposal, Assignee } from "@/lib/agent/types";
+
 
 export const Route = createFileRoute("/_authenticated/approvals")({
   head: () => ({ meta: [{ title: "Approvals — Inbox" }] }),
@@ -39,7 +41,19 @@ function ApprovalsPage() {
   });
 
   return (
-    <PageShell title="Approvals">
+    <PageShell
+      title="Approvals"
+      action={
+        data && data.length > 1 ? (
+          <ClearAllButton
+            label="Skip all"
+            description="Rejects every pending approval and moves them to Trash."
+            clearFn={rejectAllApprovals}
+            variant="outline"
+          />
+        ) : undefined
+      }
+    >
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {data && data.length === 0 && (
         <Card className="p-6 text-center">
@@ -53,6 +67,7 @@ function ApprovalsPage() {
     </PageShell>
   );
 }
+
 
 // Datetime helpers for <input type="datetime-local">
 function isoToLocalInput(iso: string | null | undefined): string {
@@ -178,7 +193,14 @@ function ApprovalCard({ approval }: { approval: Approval }) {
           Assigned via: {assignment.reasoning} ({Math.round(assignment.confidence * 100)}%)
         </p>
 
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-4 items-center">
+          <DeleteButton
+            id={approval.id}
+            label="this approval"
+            deleteFn={softDeleteApproval}
+            confirmTitle="Delete this approval?"
+            confirmBody="Removes this pending approval entirely. Different from Skip — this is permanent (Trash holds it 30 days)."
+          />
           <Button
             variant="outline"
             size="sm"
@@ -192,6 +214,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
             disabled={decide.isPending}
           >{decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve & save to calendar</Button>
         </div>
+
       </Card>
     );
   }
@@ -251,7 +274,14 @@ function ApprovalCard({ approval }: { approval: Approval }) {
         Originally: {format(new Date(cal.startISO), "EEE MMM d, p")}
       </p>
 
-      <div className="flex gap-2 mt-4">
+      <div className="flex gap-2 mt-4 items-center">
+        <DeleteButton
+          id={approval.id}
+          label="this approval"
+          deleteFn={softDeleteApproval}
+          confirmTitle="Delete this approval?"
+          confirmBody="Removes this pending approval entirely. Different from Skip — moved to Trash for 30 days."
+        />
         <Button variant="outline" size="sm" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
           <X className="h-4 w-4 mr-1" /> Skip
         </Button>
@@ -259,6 +289,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
           {decide.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Approve & add to calendar
         </Button>
       </div>
+
     </Card>
   );
 }

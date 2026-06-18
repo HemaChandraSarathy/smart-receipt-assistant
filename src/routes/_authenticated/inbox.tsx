@@ -2,14 +2,27 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { format, startOfWeek, isThisWeek, isThisMonth } from "date-fns";
-import { useState } from "react";
-import { Sparkles, Trophy } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Sparkles, Trophy, RotateCcw } from "lucide-react";
 
 import { PageShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { ItemActions } from "@/components/item-actions";
-import { listItems, listWins } from "@/lib/agent.functions";
+import { DeleteButton, ClearAllButton } from "@/components/delete-button";
+import {
+  listItems,
+  listWins,
+  listTrashedItems,
+  softDeleteItem,
+  restoreItem,
+  clearCancelledItems,
+  emptyTrash,
+  deleteTrashedItemForever,
+} from "@/lib/agent.functions";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { Assignee, ItemCategory } from "@/lib/agent/types";
 
 export const Route = createFileRoute("/_authenticated/inbox")({
@@ -31,6 +44,7 @@ type Item = {
   rsvp_by: string | null;
   status?: string;
   created_at: string;
+  deleted_at?: string | null;
 };
 
 type Win = {
@@ -49,7 +63,8 @@ type Win = {
   reschedule_count: number;
 };
 
-type Status = "open" | "done" | "cancelled";
+type Status = "open" | "done" | "cancelled" | "trash";
+type ParentFilter = "all" | Assignee;
 
 const CATS: Array<{ key: "all" | ItemCategory; label: string }> = [
   { key: "all", label: "All" },
@@ -58,6 +73,13 @@ const CATS: Array<{ key: "all" | ItemCategory; label: string }> = [
   { key: "coupon", label: "Coupons" },
   { key: "invite", label: "Invites" },
   { key: "receipt", label: "Receipts" },
+];
+
+const PARENT_TABS: Array<{ key: ParentFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "mom", label: "Mom" },
+  { key: "dad", label: "Dad" },
+  { key: "either", label: "Either" },
 ];
 
 function InboxPage() {
@@ -69,53 +91,110 @@ function InboxPage() {
   });
   const [status, setStatus] = useState<Status>("open");
   const [cat, setCat] = useState<"all" | ItemCategory>("all");
+  const [parent, setParent] = useState<ParentFilter>(() => {
+    if (typeof window === "undefined") return "all";
+    return (localStorage.getItem("inbox.parent") as ParentFilter) ?? "all";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") localStorage.setItem("inbox.parent", parent);
+  }, [parent]);
+
+  const counts = countByParent(data ?? []);
 
   return (
     <PageShell title="Inbox">
       <Tabs value={status} onValueChange={(v) => setStatus(v as Status)} className="mb-3">
-        <TabsList className="w-full grid grid-cols-3">
+        <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="open" className="text-xs">Open</TabsTrigger>
           <TabsTrigger value="done" className="text-xs">Done</TabsTrigger>
           <TabsTrigger value="cancelled" className="text-xs">Cancelled</TabsTrigger>
+          <TabsTrigger value="trash" className="text-xs">Trash</TabsTrigger>
         </TabsList>
       </Tabs>
 
-      <Tabs value={cat} onValueChange={(v) => setCat(v as "all" | ItemCategory)} className="mb-4">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          {CATS.map((c) => (
-            <TabsTrigger key={c.key} value={c.key} className="text-xs">{c.label}</TabsTrigger>
+      <Tabs value={parent} onValueChange={(v) => setParent(v as ParentFilter)} className="mb-3">
+        <TabsList className="w-full grid grid-cols-4">
+          {PARENT_TABS.map((p) => (
+            <TabsTrigger key={p.key} value={p.key} className="text-xs">
+              {p.label}
+              {counts[p.key] > 0 && (
+                <span className="ml-1 text-[10px] text-muted-foreground">· {counts[p.key]}</span>
+              )}
+            </TabsTrigger>
           ))}
         </TabsList>
       </Tabs>
 
-      {status === "open" && (
-        <OpenView data={data} isLoading={isLoading} cat={cat} />
+      {status !== "trash" && (
+        <Tabs value={cat} onValueChange={(v) => setCat(v as "all" | ItemCategory)} className="mb-4">
+          <TabsList className="w-full justify-start overflow-x-auto">
+            {CATS.map((c) => (
+              <TabsTrigger key={c.key} value={c.key} className="text-xs">{c.label}</TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       )}
-      {status === "done" && <DoneView cat={cat} />}
+
+      {status === "open" && <OpenView data={data} isLoading={isLoading} cat={cat} parent={parent} />}
+      {status === "done" && <DoneView cat={cat} parent={parent} />}
       {status === "cancelled" && (
-        <CancelledView data={data} isLoading={isLoading} cat={cat} />
+        <CancelledView data={data} isLoading={isLoading} cat={cat} parent={parent} />
       )}
+      {status === "trash" && <TrashView parent={parent} />}
     </PageShell>
   );
 }
 
-function OpenView({ data, isLoading, cat }: { data: Item[] | undefined; isLoading: boolean; cat: "all" | ItemCategory }) {
+function countByParent(items: Item[]): Record<ParentFilter, number> {
+  const open = items.filter((i) => (i.status ?? "open") === "open");
+  return {
+    all: open.length,
+    mom: open.filter((i) => i.assignee === "mom").length,
+    dad: open.filter((i) => i.assignee === "dad").length,
+    either: open.filter((i) => i.assignee === "either").length,
+  };
+}
+
+function applyParent<T extends { assignee: Assignee }>(arr: T[], parent: ParentFilter): T[] {
+  return parent === "all" ? arr : arr.filter((i) => i.assignee === parent);
+}
+
+function OpenView({
+  data,
+  isLoading,
+  cat,
+  parent,
+}: {
+  data: Item[] | undefined;
+  isLoading: boolean;
+  cat: "all" | ItemCategory;
+  parent: ParentFilter;
+}) {
   const open = (data ?? []).filter((i) => (i.status ?? "open") === "open");
-  const filtered = open.filter((i) => cat === "all" || i.category === cat);
+  const catFiltered = open.filter((i) => cat === "all" || i.category === cat);
+  const filtered = applyParent(catFiltered, parent);
+
+  if (parent !== "all") {
+    return (
+      <>
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!isLoading && filtered.length === 0 && (
+          <EmptyState text={`Nothing for ${parent} right now.`} />
+        )}
+        <div className="space-y-2">
+          {filtered.map((it) => <ItemRow key={it.id} item={it} />)}
+        </div>
+      </>
+    );
+  }
+
   const mom = filtered.filter((i) => i.assignee === "mom");
   const dad = filtered.filter((i) => i.assignee === "dad");
   const either = filtered.filter((i) => i.assignee === "either");
   return (
     <>
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {data && filtered.length === 0 && (
-        <Card className="p-6 text-center">
-          <p className="font-serif text-lg">Nothing here yet</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Tap the ＋ button to add a receipt, bill, or coupon.
-          </p>
-        </Card>
-      )}
+      {data && filtered.length === 0 && <EmptyState text="Tap the ＋ button to add a receipt, bill, or coupon." />}
       <Group label="Mom" items={mom} accent="mom" />
       <Group label="Dad" items={dad} accent="dad" />
       <Group label="Either" items={either} accent="either" />
@@ -123,11 +202,42 @@ function OpenView({ data, isLoading, cat }: { data: Item[] | undefined; isLoadin
   );
 }
 
-function CancelledView({ data, isLoading, cat }: { data: Item[] | undefined; isLoading: boolean; cat: "all" | ItemCategory }) {
+function EmptyState({ text }: { text: string }) {
+  return (
+    <Card className="p-6 text-center">
+      <p className="font-serif text-lg">Nothing here yet</p>
+      <p className="text-sm text-muted-foreground mt-1">{text}</p>
+    </Card>
+  );
+}
+
+function CancelledView({
+  data,
+  isLoading,
+  cat,
+  parent,
+}: {
+  data: Item[] | undefined;
+  isLoading: boolean;
+  cat: "all" | ItemCategory;
+  parent: ParentFilter;
+}) {
   const cancelled = (data ?? []).filter((i) => i.status === "cancelled");
-  const filtered = cancelled.filter((i) => cat === "all" || i.category === cat);
+  const filtered = applyParent(
+    cancelled.filter((i) => cat === "all" || i.category === cat),
+    parent,
+  );
   return (
     <>
+      {filtered.length > 0 && (
+        <div className="flex justify-end mb-2">
+          <ClearAllButton
+            label="Clear all cancelled"
+            description="Moves every cancelled item to Trash. You can restore for 30 days."
+            clearFn={clearCancelledItems}
+          />
+        </div>
+      )}
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {!isLoading && filtered.length === 0 && (
         <Card className="p-6 text-center">
@@ -139,7 +249,15 @@ function CancelledView({ data, isLoading, cat }: { data: Item[] | undefined; isL
           <Card key={it.id} className="p-4 opacity-70">
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="font-serif text-base leading-tight flex-1 line-through">{it.title}</h3>
-              <CategoryChip cat={it.category} />
+              <div className="flex items-center gap-2 shrink-0">
+                <CategoryChip cat={it.category} />
+                <DeleteButton
+                  id={it.id}
+                  label={it.title}
+                  deleteFn={softDeleteItem}
+                  restoreFn={restoreItem}
+                />
+              </div>
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
               {it.merchant && <span>{it.merchant}</span>}
@@ -152,7 +270,97 @@ function CancelledView({ data, isLoading, cat }: { data: Item[] | undefined; isL
   );
 }
 
-function DoneView({ cat }: { cat: "all" | ItemCategory }) {
+function TrashView({ parent }: { parent: ParentFilter }) {
+  const fn = useServerFn(listTrashedItems);
+  const { data, isLoading } = useQuery({
+    queryKey: ["trash"],
+    queryFn: async () => (await fn()) as unknown as Item[],
+    refetchInterval: 30_000,
+  });
+  const qc = useQueryClient();
+  const restoreFn = useServerFn(restoreItem);
+  const purgeFn = useServerFn(deleteTrashedItemForever);
+
+  const restoreM = useMutation({
+    mutationFn: (id: string) => restoreFn({ data: { id } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["trash"] });
+      qc.invalidateQueries({ queryKey: ["items"] });
+      toast.success("Restored");
+    },
+  });
+  const purgeM = useMutation({
+    mutationFn: (id: string) => purgeFn({ data: { id } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["trash"] });
+      toast("Deleted forever");
+    },
+  });
+
+  const filtered = applyParent(data ?? [], parent);
+
+  return (
+    <>
+      {filtered.length > 0 && (
+        <div className="flex justify-end mb-2">
+          <ClearAllButton
+            label="Empty trash"
+            description="Hard-deletes everything in Trash across items, runs, approvals, and notifications. This can't be undone."
+            clearFn={emptyTrash}
+            variant="destructive"
+          />
+        </div>
+      )}
+      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {!isLoading && filtered.length === 0 && (
+        <Card className="p-6 text-center">
+          <p className="font-serif text-lg">Trash is empty</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Deleted items show up here for 30 days.
+          </p>
+        </Card>
+      )}
+      <div className="space-y-2">
+        {filtered.map((it) => (
+          <Card key={it.id} className="p-4 opacity-70">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="font-serif text-base leading-tight flex-1 line-through">{it.title}</h3>
+              <CategoryChip cat={it.category} />
+            </div>
+            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+              {it.merchant && <span>{it.merchant}</span>}
+              {it.deleted_at && (
+                <span>Deleted {format(new Date(it.deleted_at), "MMM d")}</span>
+              )}
+            </div>
+            <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() => restoreM.mutate(it.id)}
+                disabled={restoreM.isPending}
+              >
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 ml-auto text-destructive hover:text-destructive"
+                onClick={() => purgeM.mutate(it.id)}
+                disabled={purgeM.isPending}
+              >
+                Delete forever
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DoneView({ cat, parent }: { cat: "all" | ItemCategory; parent: ParentFilter }) {
   const fn = useServerFn(listWins);
   const { data, isLoading } = useQuery({
     queryKey: ["wins"],
@@ -161,7 +369,10 @@ function DoneView({ cat }: { cat: "all" | ItemCategory }) {
   });
 
   const all = data ?? [];
-  const wins = all.filter((w) => cat === "all" || w.category === cat);
+  const wins = applyParent(
+    all.filter((w) => cat === "all" || w.category === cat),
+    parent,
+  );
   const thisWeek = wins.filter((w) => w.completed_at && isThisWeek(new Date(w.completed_at), { weekStartsOn: 1 }));
   const thisMonth = wins.filter((w) => w.completed_at && isThisMonth(new Date(w.completed_at)));
   const totalPaid = thisMonth
@@ -243,9 +454,17 @@ function WeekGroup({ weekKey, list }: { weekKey: string; list: Win[] }) {
                 <span className="text-emerald-600">✓</span>
                 <h3 className="font-serif text-base leading-tight truncate">{w.title}</h3>
               </div>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
-                {w.assignee}
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {w.assignee}
+                </span>
+                <DeleteButton
+                  id={w.id}
+                  label={w.title}
+                  deleteFn={softDeleteItem}
+                  restoreFn={restoreItem}
+                />
+              </div>
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground pl-5">
               {w.merchant && <span>{w.merchant}</span>}
@@ -291,7 +510,10 @@ function ItemRow({ item }: { item: Item }) {
     <Card className="p-4">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="font-serif text-base leading-tight flex-1">{item.title}</h3>
-        <CategoryChip cat={item.category} />
+        <div className="flex items-center gap-2 shrink-0">
+          <CategoryChip cat={item.category} />
+          <DeleteButton id={item.id} label={item.title} deleteFn={softDeleteItem} restoreFn={restoreItem} />
+        </div>
       </div>
       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
         {item.merchant && <span>{item.merchant}</span>}

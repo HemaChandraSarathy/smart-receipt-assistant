@@ -83,6 +83,7 @@ export type Database = {
         Row: {
           created_at: string
           current_node: string | null
+          deleted_at: string | null
           ended_at: string | null
           error: string | null
           id: string
@@ -98,6 +99,7 @@ export type Database = {
         Insert: {
           created_at?: string
           current_node?: string | null
+          deleted_at?: string | null
           ended_at?: string | null
           error?: string | null
           id?: string
@@ -113,6 +115,7 @@ export type Database = {
         Update: {
           created_at?: string
           current_node?: string | null
+          deleted_at?: string | null
           ended_at?: string | null
           error?: string | null
           id?: string
@@ -133,6 +136,7 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decision: Json | null
+          deleted_at: string | null
           id: string
           node: string
           proposal: Json
@@ -146,6 +150,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision?: Json | null
+          deleted_at?: string | null
           id?: string
           node: string
           proposal: Json
@@ -159,6 +164,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decision?: Json | null
+          deleted_at?: string | null
           id?: string
           node?: string
           proposal?: Json
@@ -254,6 +260,7 @@ export type Database = {
       golden_examples: {
         Row: {
           created_at: string
+          deleted_at: string | null
           expected_clarifications: Json
           expected_items: Json
           failure_tags: string[]
@@ -269,6 +276,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          deleted_at?: string | null
           expected_clarifications?: Json
           expected_items?: Json
           failure_tags?: string[]
@@ -284,6 +292,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          deleted_at?: string | null
           expected_clarifications?: Json
           expected_items?: Json
           failure_tags?: string[]
@@ -310,6 +319,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           currency: string | null
+          deleted_at: string | null
           description: string | null
           due_at: string | null
           embedding: string | null
@@ -340,6 +350,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           currency?: string | null
+          deleted_at?: string | null
           description?: string | null
           due_at?: string | null
           embedding?: string | null
@@ -370,6 +381,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           currency?: string | null
+          deleted_at?: string | null
           description?: string | null
           due_at?: string | null
           embedding?: string | null
@@ -404,6 +416,7 @@ export type Database = {
         Row: {
           body: string | null
           created_at: string
+          deleted_at: string | null
           id: string
           item_id: string | null
           kind: string
@@ -414,6 +427,7 @@ export type Database = {
         Insert: {
           body?: string | null
           created_at?: string
+          deleted_at?: string | null
           id?: string
           item_id?: string | null
           kind?: string
@@ -424,6 +438,7 @@ export type Database = {
         Update: {
           body?: string | null
           created_at?: string
+          deleted_at?: string | null
           id?: string
           item_id?: string | null
           kind?: string
