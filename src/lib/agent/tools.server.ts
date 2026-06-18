@@ -30,19 +30,29 @@ function gatewayHeaders(connectorKeyEnv: string) {
 }
 
 // ---------- visionExtract: image -> ExtractedItem ----------
+const nullableStr = z
+  .union([z.string(), z.number(), z.null(), z.undefined()])
+  .transform((v) => (v === null || v === undefined || v === "" ? null : String(v)));
+const nullableNum = z
+  .union([z.number(), z.string(), z.null(), z.undefined()])
+  .transform((v) => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  });
 const extractedSchema = z.object({
-  category: z.enum(["bill", "promo", "coupon", "invite", "receipt", "other"]),
-  category_confidence: z.number().min(0).max(1),
-  topic: z.string().nullable(),
-  merchant: z.string().nullable(),
-  title: z.string(),
-  description: z.string().nullable(),
-  amount: z.number().nullable(),
-  currency: z.string().nullable(),
-  due_at: z.string().nullable(),
-  expires_at: z.string().nullable(),
-  rsvp_by: z.string().nullable(),
-  raw_text: z.string().nullable(),
+  category: z.enum(["bill", "promo", "coupon", "invite", "receipt", "other"]).catch("other"),
+  category_confidence: nullableNum.transform((v) => (v == null ? 0.5 : Math.max(0, Math.min(1, v)))),
+  topic: nullableStr,
+  merchant: nullableStr,
+  title: z.string().catch("Untitled"),
+  description: nullableStr,
+  amount: nullableNum,
+  currency: nullableStr,
+  due_at: nullableStr,
+  expires_at: nullableStr,
+  rsvp_by: nullableStr,
+  raw_text: nullableStr,
 });
 
 const EXTRACTOR_SYSTEM = `You are a meticulous household paper-trail assistant.
