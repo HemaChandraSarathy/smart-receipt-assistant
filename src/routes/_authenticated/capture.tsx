@@ -148,8 +148,16 @@ function CapturePage() {
 
       <Card className="p-5 mb-4">
         <h2 className="font-serif text-lg mb-1">Scan Gmail</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Last 30 days, common bill/coupon/invite keywords.
+        <p className="text-sm text-muted-foreground mb-2">
+          {scanState.data?.lastScannedAt
+            ? `Picks up new mail since your last scan.`
+            : `First scan — looks at the last 30 days.`}
+        </p>
+        <p className="text-xs text-muted-foreground mb-4">
+          Last scanned:{" "}
+          {scanState.data?.lastScannedAt
+            ? new Date(scanState.data.lastScannedAt).toLocaleString()
+            : "never"}
         </p>
         <Button onClick={() => gmailScan.mutate()} disabled={gmailScan.isPending} variant="secondary" className="w-full">
           {gmailScan.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
