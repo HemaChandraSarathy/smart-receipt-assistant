@@ -115,7 +115,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
               onChange={(e) => setPatch((p) => ({ ...p, title: e.target.value }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Merchant</Label>
               <Input
@@ -133,7 +133,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">
                 {item.due_at ? "Due" : item.expires_at ? "Expires" : item.rsvp_by ? "RSVP by" : "Due"}
