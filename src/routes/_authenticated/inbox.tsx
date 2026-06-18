@@ -114,7 +114,7 @@ function InboxPage() {
   const counts = countByParent(data ?? []);
 
   return (
-    <PageShell title="Inbox">
+    <PageShell title="Unburden">
       <Tabs value={status} onValueChange={(v) => setStatus(v as Status)} className="mb-3">
         <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="open" className="text-xs">Open</TabsTrigger>
