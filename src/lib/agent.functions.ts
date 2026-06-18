@@ -459,7 +459,7 @@ export const rescheduleItem = createServerFn({ method: "POST" })
       original_due_at: original,
       reschedule_count: (item.reschedule_count ?? 0) + 1,
     };
-    await supabase.from("items").update(patch).eq("id", item.id);
+    await supabase.from("items").update(patch as never).eq("id", item.id);
 
     // Reschedule any active followup to 24h before the new date
     const nextNudge = new Date(newDate.getTime() - 24 * 60 * 60_000).toISOString();
