@@ -26,24 +26,42 @@ function AuthPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) navigate({ to: "/inbox" });
-    });
+    let cancelled = false;
+    async function routeSignedInUser() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (sessionData.session) {
+        navigate({ to: "/inbox", replace: true });
+        return;
+      }
+
+      const { data } = await supabase.auth.getUser();
+      if (!cancelled && data.user) navigate({ to: "/inbox", replace: true });
+    }
+    void routeSignedInUser();
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
   const onGoogle = async () => {
     setBusy(true);
     setErr(null);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-      extraParams: { prompt: "select_account" },
-    });
-    if (!result.error && !result.redirected) {
-      navigate({ to: "/inbox" });
-      return;
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+        extraParams: { prompt: "select_account" },
+      });
+      if (!result.error && !result.redirected) {
+        navigate({ to: "/inbox", replace: true });
+        return;
+      }
+      if (result.error) setErr(String((result.error as Error).message ?? result.error));
+      if (!result.redirected) setBusy(false);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+      setBusy(false);
     }
-    if (result.error) setErr(String((result.error as Error).message ?? result.error));
-    if (!result.redirected) setBusy(false);
   };
 
   const onEmail = async (e: React.FormEvent) => {

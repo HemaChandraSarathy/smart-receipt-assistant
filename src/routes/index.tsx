@@ -17,9 +17,22 @@ export const Route = createFileRoute("/")({
 function Landing() {
   const navigate = useNavigate();
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      navigate({ to: data.user ? "/inbox" : "/auth" });
-    });
+    let cancelled = false;
+    async function routeFromSession() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (sessionData.session) {
+        navigate({ to: "/inbox", replace: true });
+        return;
+      }
+
+      const { data } = await supabase.auth.getUser();
+      if (!cancelled) navigate({ to: data.user ? "/inbox" : "/auth", replace: true });
+    }
+    void routeFromSession();
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
