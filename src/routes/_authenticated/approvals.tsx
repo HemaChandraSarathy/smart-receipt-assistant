@@ -217,19 +217,21 @@ function ApprovalCard({ approval }: { approval: Approval }) {
             onChange={(e) => setPatch((p) => ({ ...p, summary: e.target.value }))}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="min-w-0">
             <Label className="text-xs">Start</Label>
             <Input
               type="datetime-local"
+              className="w-full"
               defaultValue={isoToLocalInput(cal.startISO)}
               onChange={(e) => setPatch((p) => ({ ...p, startISO: localInputToISO(e.target.value) }))}
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <Label className="text-xs">End</Label>
             <Input
               type="datetime-local"
+              className="w-full"
               defaultValue={isoToLocalInput(cal.endISO)}
               onChange={(e) => setPatch((p) => ({ ...p, endISO: localInputToISO(e.target.value) }))}
             />
