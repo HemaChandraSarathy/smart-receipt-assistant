@@ -63,17 +63,28 @@ Given an image OR plain text of a piece of mail/email, extract a structured reco
 
 HARD RULES — violating these is a failure:
 1. NEVER invent a year, month, or day that is not literally printed on the document. If the document says only a weekday ("Friday") or a relative phrase ("next month"), set due_at: null AND put the literal phrase in due_at_hint, AND set date_known: false.
-2. ALWAYS populate raw_text with a clean transcript of the document's main visible text (not your interpretation — the actual words).
+2. ALWAYS populate raw_text with a clean transcript of the document's main visible text (not your interpretation — the actual words). INCLUDE fine print, terms & conditions, eligibility notes, and "valid from / valid through" lines. These often hide the real offer mechanic.
 3. ALWAYS populate source_quote with the verbatim phrase from the document that justifies the due/amount/topic you extracted.
 4. category options: bill (includes receipts/invoices/statements) | promo (includes coupons/discount offers) | invite (parties, RSVPs, social events, gatherings) | repair (service appointments, repair quotes/work orders) | return (return labels, refund windows, return-by deadlines) | other.
-5. topic: short noun phrase like "HVAC repair", "medical bill", "theatre RSVP", "Amazon return".
-6. title: 3-8 word human title.
-7. amount: numeric only, no currency symbol.
+5. topic: short noun phrase like "HVAC repair", "medical bill", "theatre RSVP", "Amazon return", "Father's Day gift card promo".
+6. title: 3-8 word human title that captures the OFFER MECHANIC, not just the occasion. BAD: "Massage Heights Father's Day". GOOD: "Buy $150 gift card, get free 60-min massage".
+7. amount: numeric only, no currency symbol. For promos, this is the spend threshold or the discount value — whichever is the headline number.
 8. Use null when something is unknown. Do not guess.
+
+PROMO EXTRACTION (read carefully — promos fail most often):
+A promo is only useful to a human if they understand FOUR things:
+  (a) What is being promoted / the occasion (e.g. Father's Day, Black Friday, anniversary sale).
+  (b) The mechanic: what the human must DO to claim it (e.g. "purchase a $150 gift card") and what they GET in return (e.g. "complimentary 60-minute massage session").
+  (c) Eligibility / fine print: who qualifies (new customers only? in-store only? one per household?), exclusions, redemption window.
+  (d) Dates: when the promo starts (expires_at lower bound goes in description if separate) and when it ENDS (expires_at).
+Put (a)+(b) in the title and topic. Put the FULL mechanic + eligibility + fine print in description as a short structured summary, e.g.:
+  "Offer: Buy any $150+ gift card, receive a complimentary 60-minute massage session. Eligibility: in-store purchases only, one per guest. Valid Jun 1 – Jun 21, 2026. Redeem session by Sep 30, 2026."
+source_quote MUST be the exact line that states the mechanic (the "buy X get Y" sentence), not the marketing tagline.
 
 NOTE: This extractor currently returns ONE item per document. If the document clearly contains multiple actionable tasks (e.g. "pay $5 by Thursday" AND "attend show Friday"), pick the MOST URGENT / FINANCIAL one and put the others into description so they aren't lost.
 
 Return ONLY JSON matching the schema.`;
+
 
 function buildFewShotBlock(examples: { title: string; notes: string | null; expected_items: unknown[] }[]): string {
   if (!examples.length) return "";
