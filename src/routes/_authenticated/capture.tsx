@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { startRunFromImage, startRunFromText, scanGmailRecent } from "@/lib/agent.functions";
+import { startRunFromImage, startRunFromText, scanGmailRecent, getGmailScanState } from "@/lib/agent.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/capture")({
