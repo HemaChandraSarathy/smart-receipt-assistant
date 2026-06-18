@@ -25,6 +25,8 @@ type Match = {
   amount: number | null;
   due_at: string | null;
   expires_at: string | null;
+  status: string | null;
+  completed_at: string | null;
   similarity: number;
 };
 
