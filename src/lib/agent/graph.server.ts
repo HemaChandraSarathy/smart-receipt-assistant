@@ -233,12 +233,10 @@ export function buildGraph(
       .filter(Boolean)
       .join("\n");
     const proposal: ApprovalProposal = { kind: "create_calendar_event", summary, description, startISO, endISO };
-    if (!decision) {
-      await deps.writeApproval("approveCalendar", "approveCalendar", "create_calendar_event", proposal);
-      await deps.recordEvent("approveCalendar", "interrupt", { proposal });
-      return { pendingApproval: "approveCalendar" };
-    }
-    if (decision.action === "reject") {
+    // Auto-create: the user already approved saving the item, so don't gate
+    // the calendar event behind a second approval. Honor an explicit reject
+    // if one was provided programmatically.
+    if (decision?.action === "reject") {
       await deps.recordEvent("approveCalendar", "end", { decision, status: "rejected" });
       return {};
     }
