@@ -54,9 +54,10 @@ export function DeleteButton({
 }) {
   const qc = useQueryClient();
   const del = useServerFn(deleteFn);
-  const noop = useServerFn((async () => ({ ok: true })) as Fn);
-  const restore = restoreFn ? useServerFn(restoreFn) : noop;
+  const noopFn: Fn = async () => ({ ok: true });
+  const restore = useServerFn(restoreFn ?? noopFn);
   const canRestore = !!restoreFn;
+
 
 
   const invalidate = () => {
