@@ -6,7 +6,8 @@ import { useState } from "react";
 
 import { PageShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ItemActions } from "@/components/item-actions";
 import { listItems } from "@/lib/agent.functions";
 import type { Assignee, ItemCategory } from "@/lib/agent/types";
 
@@ -27,6 +28,7 @@ type Item = {
   due_at: string | null;
   expires_at: string | null;
   rsvp_by: string | null;
+  status?: string;
   created_at: string;
 };
 
