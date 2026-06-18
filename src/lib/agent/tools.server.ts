@@ -53,18 +53,41 @@ const extractedSchema = z.object({
   expires_at: nullableStr,
   rsvp_by: nullableStr,
   raw_text: nullableStr,
+  due_at_hint: nullableStr.optional(),
+  source_quote: nullableStr.optional(),
+  date_known: z.unknown().optional().transform((v) => (typeof v === "boolean" ? v : v == null ? undefined : Boolean(v))),
 });
 
 const EXTRACTOR_SYSTEM = `You are a meticulous household paper-trail assistant.
 Given an image OR plain text of a piece of mail/email, extract a structured record.
-- category: bill | promo | coupon | invite | receipt | other
-- topic: short noun phrase like "HVAC promo", "medical bill", "theatre RSVP"
-- title: a 3-8 word human title
-- due_at / expires_at / rsvp_by: ISO 8601 date or datetime when known
-- amount: numeric only, no currency symbol
-Return ONLY JSON matching the schema. Use null when unknown — do not guess.`;
 
-export async function visionExtract(input: { imageUrl?: string; text?: string }): Promise<ExtractedItem> {
+HARD RULES — violating these is a failure:
+1. NEVER invent a year, month, or day that is not literally printed on the document. If the document says only a weekday ("Friday") or a relative phrase ("next month"), set due_at: null AND put the literal phrase in due_at_hint, AND set date_known: false.
+2. ALWAYS populate raw_text with a clean transcript of the document's main visible text (not your interpretation — the actual words).
+3. ALWAYS populate source_quote with the verbatim phrase from the document that justifies the due/amount/topic you extracted.
+4. category options: bill | promo | coupon | invite | receipt | other.
+5. topic: short noun phrase like "HVAC promo", "medical bill", "theatre RSVP".
+6. title: 3-8 word human title.
+7. amount: numeric only, no currency symbol.
+8. Use null when something is unknown. Do not guess.
+
+NOTE: This extractor currently returns ONE item per document. If the document clearly contains multiple actionable tasks (e.g. "pay $5 by Thursday" AND "attend show Friday"), pick the MOST URGENT / FINANCIAL one and put the others into description so they aren't lost.
+
+Return ONLY JSON matching the schema.`;
+
+function buildFewShotBlock(examples: { title: string; notes: string | null; expected_items: unknown[] }[]): string {
+  if (!examples.length) return "";
+  const blocks = examples.slice(0, 2).map((ex, i) => {
+    const first = (ex.expected_items[0] ?? {}) as Record<string, unknown>;
+    return `Example ${i + 1} — ${ex.title}${ex.notes ? `\n(Why this is tricky: ${ex.notes})` : ""}\nExpected JSON for the most-urgent task:\n${JSON.stringify(first, null, 2)}`;
+  });
+  return `\n\nHere are reference examples from past documents (the SAME extractor previously got these wrong — follow the date discipline and raw_text/source_quote shape shown):\n\n${blocks.join("\n\n---\n\n")}`;
+}
+
+export async function visionExtract(
+  input: { imageUrl?: string; text?: string },
+  examples: { title: string; notes: string | null; expected_items: unknown[] }[] = [],
+): Promise<ExtractedItem> {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new ToolError("LOVABLE_API_KEY missing", "visionExtract", false);
   const gateway = createLovableAiGatewayProvider(key);
@@ -77,12 +100,12 @@ export async function visionExtract(input: { imageUrl?: string; text?: string })
   try {
     const { text } = await generateText({
       model: gateway("google/gemini-2.5-flash"),
-      system: EXTRACTOR_SYSTEM + "\n\nRespond with ONLY a JSON object, no prose, no code fences.",
+      system: EXTRACTOR_SYSTEM + buildFewShotBlock(examples) + "\n\nRespond with ONLY a JSON object, no prose, no code fences.",
       messages: [{ role: "user", content: userContent }],
     });
     const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
     const parsed = extractedSchema.parse(JSON.parse(cleaned));
-    return parsed;
+    return parsed as ExtractedItem;
   } catch (e) {
     throw new ToolError(`vision extract failed: ${(e as Error).message}`, "visionExtract");
   }
