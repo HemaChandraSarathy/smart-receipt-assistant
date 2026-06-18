@@ -80,16 +80,53 @@ export const scanGmailRecent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const { gmailSearch, gmailGetMessage } = await import("@/lib/agent/tools.server");
+    const { gmailSearch, gmailGetMessage, gmailExtractBody } = await import("@/lib/agent/tools.server");
     const { runAgent, emptyState } = await import("@/lib/agent/runtime.server");
-    const q = "newer_than:30d (receipt OR invoice OR coupon OR promo OR bill OR rsvp OR invite OR \"order confirmation\")";
-    const list = await gmailSearch(q, 15);
-    const ids = (list.messages ?? []).slice(0, 10).map((m) => m.id);
+    // Broader query: anything in the inbox from the last 30 days that looks like a
+    // bill / coupon / promo / invite / receipt / RSVP / school / kids activity / order / payment.
+    // We don't try to be clever — we cast wide and let the extractor decide.
+    const q = [
+      "newer_than:30d",
+      "in:inbox",
+      "-category:social",
+      "-category:forums",
+      "(",
+      "receipt OR invoice OR order OR purchase OR payment OR bill OR statement OR due",
+      "OR coupon OR promo OR sale OR discount OR offer",
+      "OR rsvp OR invite OR invitation OR party OR event OR registration",
+      "OR school OR teacher OR classroom OR practice OR rehearsal OR performance OR recital OR game OR tournament",
+      "OR appointment OR reminder OR confirmation OR booking OR ticket",
+      ")",
+    ].join(" ");
+    const list = await gmailSearch(q, 50);
+    const ids = (list.messages ?? []).map((m) => m.id);
     const runIds: string[] = [];
+    // Skip messages we've already processed in a prior scan to avoid duplicates.
+    const { data: existing } = await supabase
+      .from("agent_runs")
+      .select("input_ref")
+      .eq("user_id", userId)
+      .eq("input_kind", "gmail")
+      .order("started_at", { ascending: false })
+      .limit(200);
+    const seen = new Set<string>();
+    for (const r of existing ?? []) {
+      const gid = (r.input_ref as { input?: { sourceRef?: { gmailId?: string } } })?.input?.sourceRef?.gmailId;
+      if (gid) seen.add(gid);
+    }
     for (const id of ids) {
-      const msg = await gmailGetMessage(id);
-      const headers = Object.fromEntries(msg.payload.headers.map((h) => [h.name.toLowerCase(), h.value]));
-      const text = `From: ${headers["from"] ?? ""}\nSubject: ${headers["subject"] ?? ""}\nDate: ${headers["date"] ?? ""}\n\n${msg.snippet ?? ""}`;
+      if (seen.has(id)) continue;
+      let text: string;
+      try {
+        const msg = await gmailGetMessage(id);
+        const headers = Object.fromEntries(
+          msg.payload.headers.map((h) => [h.name.toLowerCase(), h.value])
+        );
+        const body = gmailExtractBody(msg.payload) || msg.snippet || "";
+        text = `From: ${headers["from"] ?? ""}\nSubject: ${headers["subject"] ?? ""}\nDate: ${headers["date"] ?? ""}\n\n${body}`;
+      } catch {
+        continue;
+      }
       const threadId = crypto.randomUUID();
       const { data: run, error } = await supabase
         .from("agent_runs")
@@ -105,9 +142,17 @@ export const scanGmailRecent = createServerFn({ method: "POST" })
       if (error) continue;
       runIds.push(run.id);
       const state = emptyState({ source: "gmail", text, imageUrl: null, sourceRef: { gmailId: id } });
-      await runAgent({ supabase, userId, runId: run.id, threadId, state });
+      // Don't let one bad email kill the whole scan.
+      try {
+        await runAgent({ supabase, userId, runId: run.id, threadId, state });
+      } catch (e) {
+        await supabase
+          .from("agent_runs")
+          .update({ status: "failed", error: (e as Error).message, ended_at: new Date().toISOString() })
+          .eq("id", run.id);
+      }
     }
-    return { runIds, scanned: ids.length };
+    return { runIds, scanned: ids.length, skipped: ids.length - runIds.length };
   });
 
 // ---- resume a run with a decision on its pending approval ----
