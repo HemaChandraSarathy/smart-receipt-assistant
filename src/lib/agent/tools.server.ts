@@ -151,7 +151,9 @@ export async function visionExtract(
 
   try {
     const { output } = await generateText({
-      model: gateway("openai/gpt-5"),
+      model: gateway("google/gemini-2.5-pro"),
+      temperature: 0,
+      seed: 1,
       output: Output.object({
         schema: extractorModelSchema,
         name: "household_document_extraction",
@@ -162,28 +164,11 @@ export async function visionExtract(
     });
     const parsed = extractedSchema.parse(output);
     return parsed as ExtractedItem;
-  } catch (primaryError) {
-    try {
-      const { output } = await generateText({
-        model: gateway("google/gemini-2.5-pro"),
-        output: Output.object({
-          schema: extractorModelSchema,
-          name: "household_document_extraction",
-          description: "A single structured record extracted only from visible document text.",
-        }),
-        system,
-        messages,
-      });
-      const parsed = extractedSchema.parse(output);
-      return parsed as ExtractedItem;
-    } catch (fallbackError) {
-      throw new ToolError(
-        `vision extract failed: GPT-5: ${(primaryError as Error).message}; fallback: ${(fallbackError as Error).message}`,
-        "visionExtract",
-      );
-    }
+  } catch (err) {
+    throw new ToolError(`vision extract failed: ${(err as Error).message}`, "visionExtract");
   }
 }
+
 
 // ---------- assignTo: ExtractedItem -> AssignmentProposal ----------
 export async function assignTo(
