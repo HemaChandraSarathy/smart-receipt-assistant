@@ -147,8 +147,6 @@ export async function visionExtract(
   try {
     const { output } = await generateText({
       model: gateway("openai/gpt-5"),
-      temperature: 0,
-      seed: 1,
       output: Output.object({
         schema: extractorModelSchema,
         name: "household_document_extraction",
