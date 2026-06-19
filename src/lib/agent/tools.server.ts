@@ -146,7 +146,7 @@ export async function visionExtract(
 
   try {
     const { output } = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
+      model: gateway("openai/gpt-5"),
       temperature: 0,
       seed: 1,
       output: Output.object({
