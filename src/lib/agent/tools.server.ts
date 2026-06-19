@@ -114,7 +114,7 @@ type ExtractExample = {
 
 function buildReferenceMessages(examples: ExtractExample[]): ModelMessage[] {
   const usable = examples.filter((ex) => (ex.source_text?.trim() || ex.imageUrl) && ex.expected_items.length > 0);
-  if (!usable.length) return "";
+  if (!usable.length) return [];
   return usable.slice(0, 2).flatMap((ex, i) => {
     const first = (ex.expected_items[0] ?? {}) as Record<string, unknown>;
     const content: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
