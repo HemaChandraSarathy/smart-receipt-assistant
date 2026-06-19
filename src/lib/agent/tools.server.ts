@@ -149,6 +149,7 @@ export async function visionExtract(
     EXTRACTOR_SYSTEM +
     "\n\nIf reference examples are provided, use them as corrections for those exact examples only. For the final document, extract only facts visible in the final user message.";
 
+  let primaryError: unknown = null;
   try {
     const { output } = await generateText({
       model: gateway("google/gemini-2.5-pro"),
@@ -162,12 +163,37 @@ export async function visionExtract(
       system,
       messages,
     });
-    const parsed = extractedSchema.parse(output);
-    return parsed as ExtractedItem;
+    return extractedSchema.parse(output) as ExtractedItem;
   } catch (err) {
-    throw new ToolError(`vision extract failed: ${(err as Error).message}`, "visionExtract");
+    primaryError = err;
+  }
+
+  // Fallback: free-form JSON, lenient parse
+  try {
+    const { text } = await generateText({
+      model: gateway("google/gemini-2.5-pro"),
+      temperature: 0,
+      system: system + "\n\nReturn ONLY a single JSON object. No markdown, no commentary.",
+      messages,
+    });
+    const cleaned = text
+      .replace(/^```json\s*/im, "")
+      .replace(/^```\s*/im, "")
+      .replace(/```\s*$/im, "")
+      .trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end <= start) throw new Error("no JSON object in fallback response");
+    const json = JSON.parse(cleaned.slice(start, end + 1));
+    return extractedSchema.parse(json) as ExtractedItem;
+  } catch (fallbackError) {
+    throw new ToolError(
+      `vision extract failed: ${(primaryError as Error).message}; fallback: ${(fallbackError as Error).message}`,
+      "visionExtract",
+    );
   }
 }
+
 
 
 // ---------- assignTo: ExtractedItem -> AssignmentProposal ----------
