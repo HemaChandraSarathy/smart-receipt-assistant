@@ -105,8 +105,9 @@ Return ONLY JSON matching the schema.`;
 
 
 function buildFewShotBlock(examples: { title: string; notes: string | null; source_text?: string | null; expected_items: unknown[] }[]): string {
-  if (!examples.length) return "";
-  const blocks = examples.slice(0, 2).map((ex, i) => {
+  const usable = examples.filter((ex) => ex.source_text?.trim() && ex.expected_items.length > 0);
+  if (!usable.length) return "";
+  const blocks = usable.slice(0, 2).map((ex, i) => {
     const first = (ex.expected_items[0] ?? {}) as Record<string, unknown>;
     const source = ex.source_text ? `\nSource transcript for this example:\n${ex.source_text.slice(0, 2500)}` : "";
     return `Example ${i + 1} — ${ex.title}${ex.notes ? `\nCorrection note: ${ex.notes}` : ""}${source}\nExpected JSON for that example only:\n${JSON.stringify(first, null, 2)}`;
