@@ -41,7 +41,6 @@ function CapturePage() {
       const { data: signed } = await supabase.storage.from("receipts").createSignedUrl(path, 60 * 60);
       if (!signed?.signedUrl) throw new Error("signing failed");
       const res = await startImg({ data: { imageUrl: signed.signedUrl, storagePath: path, note: note || undefined } });
-      if (res.status === "failed") throw new Error(res.error ?? "Could not extract a task from this image");
       toast.success(res.status === "awaiting_approval" ? "Ready for your approval" : "Processed");
       setNote("");
       qc.invalidateQueries();
@@ -54,12 +53,8 @@ function CapturePage() {
 
   const submitText = useMutation({
     mutationFn: async () => startTxt({ data: { text } }),
-    onSuccess: (res) => {
-      if (res.status === "failed") {
-        toast.error(res.error ?? "Could not extract a task from this text");
-        return;
-      }
-      toast.success(res.status === "awaiting_approval" ? "Ready for your approval" : "Processed");
+    onSuccess: () => {
+      toast.success("Sent to the agent");
       setText("");
       qc.invalidateQueries();
     },

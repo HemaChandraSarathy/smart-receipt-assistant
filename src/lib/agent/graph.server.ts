@@ -120,8 +120,7 @@ export function buildGraph(
   g.addNode("extract", async (s: S) => {
     if (s.extracted) return {};
     await deps.recordEvent("extract", "start", {
-      model: "google/gemini-2.5-pro",
-
+      model: "google/gemini-2.5-flash",
       hasImage: !!s.input.imageUrl,
     });
     const storagePath = (s.input.sourceRef as { storagePath?: string } | undefined)?.storagePath;
@@ -138,28 +137,15 @@ export function buildGraph(
       // Fetch up to 2 most recent golden examples to few-shot the extractor
       const { data: goldens } = await deps.supabase
         .from("golden_examples")
-        .select("title, notes, source_text, image_path, expected_items")
+        .select("title, notes, expected_items")
         .eq("user_id", deps.userId)
         .order("created_at", { ascending: false })
         .limit(2);
-      const examples = await Promise.all(
-        (goldens ?? []).map(async (g) => {
-          let imageUrl: string | null = null;
-          if (g.image_path) {
-            const { data: signed } = await deps.supabase.storage
-              .from("golden")
-              .createSignedUrl(g.image_path as string, 60 * 5);
-            imageUrl = signed?.signedUrl ?? null;
-          }
-          return {
-            title: g.title as string,
-            notes: (g.notes as string | null) ?? null,
-            source_text: (g.source_text as string | null) ?? null,
-            imageUrl,
-            expected_items: Array.isArray(g.expected_items) ? (g.expected_items as unknown[]) : [],
-          };
-        }),
-      );
+      const examples = (goldens ?? []).map((g) => ({
+        title: g.title as string,
+        notes: (g.notes as string | null) ?? null,
+        expected_items: Array.isArray(g.expected_items) ? (g.expected_items as unknown[]) : [],
+      }));
       const extracted = await withRetry(deps, "extract", () =>
         visionExtract(
           { imageUrl: s.input.imageUrl ?? undefined, text: s.input.text ?? undefined },

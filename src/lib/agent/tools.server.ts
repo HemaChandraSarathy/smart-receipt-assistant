@@ -2,7 +2,7 @@
 // real provider (Lovable AI vision/embeddings, Gmail/Calendar gateway, DB).
 // Tools throw on failure; the graph's retryNode catches and decides.
 
-import { generateText, Output, type ModelMessage } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -58,24 +58,6 @@ const extractedSchema = z.object({
   date_known: z.unknown().optional().transform((v) => (typeof v === "boolean" ? v : v == null ? undefined : Boolean(v))),
 });
 
-const extractorModelSchema = z.object({
-  category: z.enum(["bill", "promo", "invite", "repair", "return", "other"]),
-  category_confidence: z.number().nullable(),
-  topic: z.string().nullable(),
-  merchant: z.string().nullable(),
-  title: z.string(),
-  description: z.string().nullable(),
-  amount: z.number().nullable(),
-  currency: z.string().nullable(),
-  due_at: z.string().nullable(),
-  expires_at: z.string().nullable(),
-  rsvp_by: z.string().nullable(),
-  raw_text: z.string().nullable(),
-  due_at_hint: z.string().nullable(),
-  source_quote: z.string().nullable(),
-  date_known: z.boolean().nullable(),
-});
-
 const EXTRACTOR_SYSTEM = `You are a meticulous household paper-trail assistant.
 Given an image OR plain text of a piece of mail/email, extract a structured record.
 
@@ -104,36 +86,18 @@ NOTE: This extractor currently returns ONE item per document. If the document cl
 Return ONLY JSON matching the schema.`;
 
 
-type ExtractExample = {
-  title: string;
-  notes: string | null;
-  source_text?: string | null;
-  imageUrl?: string | null;
-  expected_items: unknown[];
-};
-
-function buildReferenceMessages(examples: ExtractExample[]): ModelMessage[] {
-  const usable = examples.filter((ex) => (ex.source_text?.trim() || ex.imageUrl) && ex.expected_items.length > 0);
-  if (!usable.length) return [];
-  return usable.slice(0, 2).flatMap((ex, i) => {
+function buildFewShotBlock(examples: { title: string; notes: string | null; expected_items: unknown[] }[]): string {
+  if (!examples.length) return "";
+  const blocks = examples.slice(0, 2).map((ex, i) => {
     const first = (ex.expected_items[0] ?? {}) as Record<string, unknown>;
-    const content: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
-      {
-        type: "text",
-        text: `Reference example ${i + 1}: ${ex.title}${ex.notes ? `\nCorrection note: ${ex.notes}` : ""}${ex.source_text ? `\nSource transcript:\n${ex.source_text.slice(0, 2500)}` : ""}\nReturn this corrected extraction for this reference example only. Do not copy its facts into later documents.`,
-      },
-    ];
-    if (ex.imageUrl) content.push({ type: "image", image: ex.imageUrl });
-    return [
-      { role: "user" as const, content },
-      { role: "assistant" as const, content: JSON.stringify(first) },
-    ];
+    return `Example ${i + 1} — ${ex.title}${ex.notes ? `\n(Why this is tricky: ${ex.notes})` : ""}\nExpected JSON for the most-urgent task:\n${JSON.stringify(first, null, 2)}`;
   });
+  return `\n\nHere are reference examples from past documents (the SAME extractor previously got these wrong — follow the date discipline and raw_text/source_quote shape shown):\n\n${blocks.join("\n\n---\n\n")}`;
 }
 
 export async function visionExtract(
   input: { imageUrl?: string; text?: string },
-  examples: ExtractExample[] = [],
+  examples: { title: string; notes: string | null; expected_items: unknown[] }[] = [],
 ): Promise<ExtractedItem> {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new ToolError("LOVABLE_API_KEY missing", "visionExtract", false);
@@ -144,57 +108,19 @@ export async function visionExtract(
   ];
   if (input.imageUrl) userContent.push({ type: "image", image: input.imageUrl });
 
-  const messages = [...buildReferenceMessages(examples), { role: "user" as const, content: userContent }];
-  const system =
-    EXTRACTOR_SYSTEM +
-    "\n\nIf reference examples are provided, use them as corrections for those exact examples only. For the final document, extract only facts visible in the final user message.";
-
-  let primaryError: unknown = null;
-  try {
-    const { output } = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
-      temperature: 0,
-      seed: 1,
-      output: Output.object({
-        schema: extractorModelSchema,
-        name: "household_document_extraction",
-        description: "A single structured record extracted only from visible document text.",
-      }),
-      system,
-      messages,
-    });
-    return extractedSchema.parse(output) as ExtractedItem;
-  } catch (err) {
-    primaryError = err;
-  }
-
-  // Fallback: free-form JSON, lenient parse
   try {
     const { text } = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
-      temperature: 0,
-      system: system + "\n\nReturn ONLY a single JSON object. No markdown, no commentary.",
-      messages,
+      model: gateway("google/gemini-2.5-flash"),
+      system: EXTRACTOR_SYSTEM + buildFewShotBlock(examples) + "\n\nRespond with ONLY a JSON object, no prose, no code fences.",
+      messages: [{ role: "user", content: userContent }],
     });
-    const cleaned = text
-      .replace(/^```json\s*/im, "")
-      .replace(/^```\s*/im, "")
-      .replace(/```\s*$/im, "")
-      .trim();
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start === -1 || end <= start) throw new Error("no JSON object in fallback response");
-    const json = JSON.parse(cleaned.slice(start, end + 1));
-    return extractedSchema.parse(json) as ExtractedItem;
-  } catch (fallbackError) {
-    throw new ToolError(
-      `vision extract failed: ${(primaryError as Error).message}; fallback: ${(fallbackError as Error).message}`,
-      "visionExtract",
-    );
+    const cleaned = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    const parsed = extractedSchema.parse(JSON.parse(cleaned));
+    return parsed as ExtractedItem;
+  } catch (e) {
+    throw new ToolError(`vision extract failed: ${(e as Error).message}`, "visionExtract");
   }
 }
-
-
 
 // ---------- assignTo: ExtractedItem -> AssignmentProposal ----------
 export async function assignTo(

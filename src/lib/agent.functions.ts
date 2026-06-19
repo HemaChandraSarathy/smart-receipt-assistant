@@ -45,11 +45,7 @@ export const startRunFromImage = createServerFn({ method: "POST" })
       sourceRef: { storagePath: data.storagePath },
     });
     const result = await runAgent({ supabase, userId, runId: run.id, threadId, state });
-    return {
-      runId: run.id as string,
-      status: result.pendingApproval ? "awaiting_approval" : result.errors.length > 0 ? "failed" : "done",
-      error: result.errors[0]?.message ?? null,
-    };
+    return { runId: run.id as string, status: result.pendingApproval ? "awaiting_approval" : "done" };
   });
 
 
@@ -76,11 +72,7 @@ export const startRunFromText = createServerFn({ method: "POST" })
     const { runAgent, emptyState } = await import("@/lib/agent/runtime.server");
     const state = emptyState({ source: "photo", imageUrl: null, text: data.text, sourceRef: {} });
     const result = await runAgent({ supabase, userId, runId: run.id, threadId, state });
-    return {
-      runId: run.id as string,
-      status: result.pendingApproval ? "awaiting_approval" : result.errors.length > 0 ? "failed" : "done",
-      error: result.errors[0]?.message ?? null,
-    };
+    return { runId: run.id as string, status: result.pendingApproval ? "awaiting_approval" : "done" };
   });
 
 // ---- scan Gmail for the last 30 days, fan out a run per matching message ----
