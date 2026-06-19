@@ -144,6 +144,11 @@ export async function visionExtract(
   ];
   if (input.imageUrl) userContent.push({ type: "image", image: input.imageUrl });
 
+  const messages = [...buildReferenceMessages(examples), { role: "user" as const, content: userContent }];
+  const system =
+    EXTRACTOR_SYSTEM +
+    "\n\nIf reference examples are provided, use them as corrections for those exact examples only. For the final document, extract only facts visible in the final user message.";
+
   try {
     const { output } = await generateText({
       model: gateway("openai/gpt-5"),
@@ -152,15 +157,31 @@ export async function visionExtract(
         name: "household_document_extraction",
         description: "A single structured record extracted only from visible document text.",
       }),
-      system:
-        EXTRACTOR_SYSTEM +
-        "\n\nIf reference examples are provided, use them as corrections for those exact examples only. For the final document, extract only facts visible in the final user message.",
-      messages: [...buildReferenceMessages(examples), { role: "user", content: userContent }],
+      system,
+      messages,
     });
     const parsed = extractedSchema.parse(output);
     return parsed as ExtractedItem;
-  } catch (e) {
-    throw new ToolError(`vision extract failed: ${(e as Error).message}`, "visionExtract");
+  } catch (primaryError) {
+    try {
+      const { output } = await generateText({
+        model: gateway("google/gemini-2.5-pro"),
+        output: Output.object({
+          schema: extractorModelSchema,
+          name: "household_document_extraction",
+          description: "A single structured record extracted only from visible document text.",
+        }),
+        system,
+        messages,
+      });
+      const parsed = extractedSchema.parse(output);
+      return parsed as ExtractedItem;
+    } catch (fallbackError) {
+      throw new ToolError(
+        `vision extract failed: GPT-5: ${(primaryError as Error).message}; fallback: ${(fallbackError as Error).message}`,
+        "visionExtract",
+      );
+    }
   }
 }
 
