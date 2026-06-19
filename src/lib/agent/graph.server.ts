@@ -120,7 +120,7 @@ export function buildGraph(
   g.addNode("extract", async (s: S) => {
     if (s.extracted) return {};
     await deps.recordEvent("extract", "start", {
-      model: "google/gemini-3.1-pro-preview",
+      model: "google/gemini-2.5-pro",
       hasImage: !!s.input.imageUrl,
     });
     const storagePath = (s.input.sourceRef as { storagePath?: string } | undefined)?.storagePath;
