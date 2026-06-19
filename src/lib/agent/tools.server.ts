@@ -2,7 +2,7 @@
 // real provider (Lovable AI vision/embeddings, Gmail/Calendar gateway, DB).
 // Tools throw on failure; the graph's retryNode catches and decides.
 
-import { generateText, Output } from "ai";
+import { generateText, Output, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -104,20 +104,36 @@ NOTE: This extractor currently returns ONE item per document. If the document cl
 Return ONLY JSON matching the schema.`;
 
 
-function buildFewShotBlock(examples: { title: string; notes: string | null; source_text?: string | null; expected_items: unknown[] }[]): string {
-  const usable = examples.filter((ex) => ex.source_text?.trim() && ex.expected_items.length > 0);
+type ExtractExample = {
+  title: string;
+  notes: string | null;
+  source_text?: string | null;
+  imageUrl?: string | null;
+  expected_items: unknown[];
+};
+
+function buildReferenceMessages(examples: ExtractExample[]): ModelMessage[] {
+  const usable = examples.filter((ex) => (ex.source_text?.trim() || ex.imageUrl) && ex.expected_items.length > 0);
   if (!usable.length) return "";
-  const blocks = usable.slice(0, 2).map((ex, i) => {
+  return usable.slice(0, 2).flatMap((ex, i) => {
     const first = (ex.expected_items[0] ?? {}) as Record<string, unknown>;
-    const source = ex.source_text ? `\nSource transcript for this example:\n${ex.source_text.slice(0, 2500)}` : "";
-    return `Example ${i + 1} — ${ex.title}${ex.notes ? `\nCorrection note: ${ex.notes}` : ""}${source}\nExpected JSON for that example only:\n${JSON.stringify(first, null, 2)}`;
+    const content: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
+      {
+        type: "text",
+        text: `Reference example ${i + 1}: ${ex.title}${ex.notes ? `\nCorrection note: ${ex.notes}` : ""}${ex.source_text ? `\nSource transcript:\n${ex.source_text.slice(0, 2500)}` : ""}\nReturn this corrected extraction for this reference example only. Do not copy its facts into later documents.`,
+      },
+    ];
+    if (ex.imageUrl) content.push({ type: "image", image: ex.imageUrl });
+    return [
+      { role: "user" as const, content },
+      { role: "assistant" as const, content: JSON.stringify(first) },
+    ];
   });
-  return `\n\nReference examples. Use them only to understand the correction pattern; do not copy their category, title, topic, merchant, or description unless the current document literally says the same thing.\n\n${blocks.join("\n\n---\n\n")}`;
 }
 
 export async function visionExtract(
   input: { imageUrl?: string; text?: string },
-  examples: { title: string; notes: string | null; source_text?: string | null; expected_items: unknown[] }[] = [],
+  examples: ExtractExample[] = [],
 ): Promise<ExtractedItem> {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new ToolError("LOVABLE_API_KEY missing", "visionExtract", false);
@@ -138,8 +154,10 @@ export async function visionExtract(
         name: "household_document_extraction",
         description: "A single structured record extracted only from visible document text.",
       }),
-      system: EXTRACTOR_SYSTEM + buildFewShotBlock(examples),
-      messages: [{ role: "user", content: userContent }],
+      system:
+        EXTRACTOR_SYSTEM +
+        "\n\nIf reference examples are provided, use them as corrections for those exact examples only. For the final document, extract only facts visible in the final user message.",
+      messages: [...buildReferenceMessages(examples), { role: "user", content: userContent }],
     });
     const parsed = extractedSchema.parse(output);
     return parsed as ExtractedItem;
