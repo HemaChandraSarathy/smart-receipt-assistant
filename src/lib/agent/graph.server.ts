@@ -120,8 +120,8 @@ export function buildGraph(
   g.addNode("extract", async (s: S) => {
     if (s.extracted) return {};
     await deps.recordEvent("extract", "start", {
-      model: "openai/gpt-5",
-      fallbackModel: "google/gemini-2.5-pro",
+      model: "google/gemini-2.5-pro",
+
       hasImage: !!s.input.imageUrl,
     });
     const storagePath = (s.input.sourceRef as { storagePath?: string } | undefined)?.storagePath;
